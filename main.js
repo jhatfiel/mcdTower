@@ -52,9 +52,9 @@ const RGB_MAT_TYPE = 24;
     const itemHighlightH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
 
     //for (let fn of globSync('videos/*.png').sort()
-    for await (let fn of globSync('videos/*.png').sort()) {
-    //for await (let fn of ['out000547.png']) {
-        if (!fn.startsWith('videos\\out00054')) continue;
+    //for await (let fn of globSync('videos/*.png').sort()) {
+    for await (let fn of ['out000547.png']) {
+        //if (!fn.startsWith('videos\\out00054')) continue;
         console.error(fn);
         let found = false;
 
