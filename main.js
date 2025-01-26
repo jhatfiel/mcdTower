@@ -1,8 +1,9 @@
-// out000547.png
+const { cv, cvTranslateError } = require('opencv-wasm');
 
 const {Jimp, ResizeStrategy} = require('jimp');
 const {glob, globSync} = require('glob');
 const { createWorker } = require('tesseract.js');
+const Tesseract = require('tesseract.js');
 //import { createWorker } from 'tesseract.js'
 
 const WIDTH = 1920;
@@ -10,19 +11,36 @@ const HEIGHT = 1080;
 const HSV_MAT_TYPE = 16;
 const RGB_MAT_TYPE = 24;
 
-require('./opencv.js').then(async cv => {
+(async () => {
+    //try {
     const worker = await createWorker('eng');
     await worker.setParameters({
-        tessedit_pageseg_mode: '7', // Single line
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: '/0123456789: COMBATMERCHANTBOSS',
     });
     await worker.setParameters({
     });
     //const slashSrc = await Jimp.read('./images/slash.png');
     //const slashImage = cv.matFromImageData(slashSrc.bitmap);
-    const foodReservesSrc = (await Jimp.read('./images/Food_Reserves.png')).resize({w:93, h:93, resizeMethod: ResizeStrategy.BEZIER});
-    const foodReservesImage = cv.matFromImageData(foodReservesSrc.bitmap);
-    foodReservesSrc.write('./foodReservesResized.png');
+    const enchantmentSrc = (await Jimp.read('./images/Life_Boost.png')).resize({w:92, h:92, mode: ResizeStrategy.HERMITE});
+    const enchantmentImage = cv.matFromImageData(enchantmentSrc.bitmap);
+    // Split the channels of the template
+    const enchantmentRGBA = new cv.MatVector();
+    cv.split(enchantmentImage, enchantmentRGBA);
+    const enchantmentAlpha = enchantmentRGBA.get(3);
+    let enchantmentBinaryMask = new cv.Mat();
+    let enchantmentMask = new cv.Mat(enchantmentBinaryMask.rows, enchantmentBinaryMask.cols, cv.CV_8UC4);
+    cv.threshold(enchantmentAlpha, enchantmentBinaryMask, 128, 255, cv.THRESH_BINARY);
+    //new Jimp({width: enchantmentMask.cols, height: enchantmentMask.rows, data: Buffer.from(enchantmentMask.data)}).write('enchantmentMask.png');
+    const encRGBA = enchantmentMask.data; //new Uint8Array(enchantmentMask.rows * enchantmentMask.cols * 4);
+    for (let i = 0; i < enchantmentMask.rows * enchantmentMask.cols; i++) {
+        const value = enchantmentMask.data[i]; // Grayscale value from the mask
+        encRGBA[i * 4] = value;    // Red channel
+        encRGBA[i * 4 + 1] = value; // Green channel
+        encRGBA[i * 4 + 2] = value; // Blue channel
+        encRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
+    }
+    new Jimp({width: enchantmentMask.cols, height: enchantmentMask.rows, data: Buffer.from(encRGBA)}).write('enchantmentMask.png');
 
     // item selection screen
     //const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [120, 50, 50, 0]); // lower green
@@ -66,12 +84,45 @@ require('./opencv.js').then(async cv => {
             found = true;
 
             let matchResult = new cv.Mat();
-            //cv.matchTemplate(foodReservesImage, image, matchResult, cv.TM_SQDIFF_NORMED);
-            cv.matchTemplate(foodReservesImage, image, matchResult, cv.TM_CCOEFF_NORMED);
+            cv.matchTemplate(image, enchantmentImage, matchResult, cv.TM_CCOEFF_NORMED, enchantmentMask);
+            for (let y=0; y<matchResult.rows; y++) {
+                for (let x=0; x<matchResult.cols; x++) {
+                    const score = matchResult.floatAt(y, x);
+                    if (score > 0.6) {
+                        console.log(`FOUND ENCHANTMENT MATCH! ${x},${y} = ${score}`);
+                        let color = new cv.Scalar(0, 255, 0, 255);
+                        let pointA = new cv.Point(x, y);
+                        let pointB = new cv.Point(x + enchantmentImage.cols, y + enchantmentImage.rows);
+                        cv.rectangle(image, pointA, pointB, color, 2, cv.LINE_8, 0);
+                    }
+                }
+            }
+            /*
+            cv.threshold(matchResult, matchResult, 0.60, 1, cv.THRESH_BINARY);
+            matchResult.convertTo(matchResult, cv.CV_8UC1);
+            let contours2 = new cv.MatVector();
+            let hierarchy2 = new cv.Mat();
+    
+            cv.findContours(matchResult, contours2, hierarchy2, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+            for (let i = 0; i < contours2.size(); ++i) {
+                let countour = contours2.get(i).data32S;
+                let x = countour[0];
+                let y = countour[1];
+                
+                let color = new cv.Scalar(0, 255, 0, 255);
+                let pointA = new cv.Point(x, y);
+                let pointB = new cv.Point(x + enchantmentImage.cols, y + enchantmentImage.rows);
+                cv.rectangle(image, pointA, pointB, color, 2, cv.LINE_8, 0);
+                console.log(`FOUND ENCHANTMENT MATCH! ${x},${y}`);
+            }
+            */
+
+            /*
             const minMaxLoc = cv.minMaxLoc(matchResult);
             console.log(JSON.stringify(minMaxLoc));
-            cv.rectangle(image, [minMaxLoc.maxLoc.x, minMaxLoc.maxLoc.y], [minMaxLoc.maxLoc.x+foodReservesImage.width, minMaxLoc.maxLoc.y+foodReservesImage.height], [0,0,255],2);
-            new Jimp({width: cv.cols, height: cv.rows, data: Buffer.from(image.data)}).write('enchantment.png');
+            cv.rectangle(image, new cv.Point(minMaxLoc.maxLoc.x, minMaxLoc.maxLoc.y), new cv.Point(minMaxLoc.maxLoc.x+foodReservesImage.width, minMaxLoc.maxLoc.y+foodReservesImage.height), new cv.Scalar(0,0,255,255),2);
+            */
+            new Jimp({width: image.cols, height: image.rows, data: Buffer.from(image.data)}).write('enchantment.png');
 
             // crop from contour image?
             let nextFloor = image.roi({x: 385, y: 75, width: 400, height: 35});
@@ -197,7 +248,10 @@ require('./opencv.js').then(async cv => {
     itemHighlightH.delete();
 
     await worker.terminate();
-});
+    //} catch (err) {
+        //console.trace(cvTranslateError(cv, err));
+    //}
+})();
 
 
 
