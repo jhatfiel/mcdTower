@@ -11,6 +11,14 @@ const HEIGHT = 1080;
 const HSV_MAT_TYPE = 16;
 const RGB_MAT_TYPE = 24;
 
+interface Enchantment {
+    fn: string;
+    name: string;
+    meleeName?: string;
+    rangedName?: string;
+    armorName?: string;
+};
+
 (async () => {
     //try {
     const worker = await createWorker('eng');
@@ -199,7 +207,6 @@ const RGB_MAT_TYPE = 24;
             cv.drawContours(image, contours, -1, [0, 255, 0], 2);
             */
 
-
             // Process contours
             for (let i = 0; i < contours.size(); i++) {
                 const contour = contours.get(i);
@@ -253,8 +260,6 @@ const RGB_MAT_TYPE = 24;
     //}
 })();
 
-
-
 /*
 
 const CV = require('./opencv.js');
@@ -271,7 +276,6 @@ const tesseract = require('tesseract.js');
     const hsv = cv.cvtColor(image, dst, cv.COLOR_BGR2HSV);
     const lowerBound = new cv.Mat();
     const upperBound = new cv.Mat();
-
 
     const mask = hsv.inRange(lowerBound, upperBound);
     const contours = mask.findContours(cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -294,9 +298,6 @@ const tesseract = require('tesseract.js');
     //dst.delete();
 })();
 */
-
-
-
 
 /*
 (async () => {
@@ -360,3 +361,113 @@ fs.readdirSync(outputDir).forEach(file => {
     analyzeFrame(`${outputDir}/${file}`);
 });
 */
+
+const enchantments: Enchantment[] = [
+{fn: 'Accelerate.png', name: 'Accelerate'},
+{fn: 'Acrobat.png', name: 'Acrobat'},
+{fn: 'Ambush.png', name: 'Ambush'},
+{fn: 'Anima_Conduit.png', name: 'Anima Conduit'},
+{fn: 'Artifact_Charge_(MCD_Enchantment).png', name: 'Artifact Charge'},
+{fn: 'Artifact_Synergy_(MCD_Enchantment).png', name: 'Artifact Synergy'},
+{fn: 'Bag_of_Souls.png', name: 'Bag of Souls'},
+{fn: 'Beast_Boss_(MCD_Enchantment).png', name: 'Beast Boss'},
+{fn: 'Beast_Burst_(MCD_Enchantment).png', name: 'Beast Burst'},
+{fn: 'Beast_Surge_(MCD_Enchantment).png', name: 'Beast Surge'},
+{fn: 'Bonus_Shot.png', name: 'Bonus Shot'},
+{fn: 'Burning.png', name: 'Burning'},
+{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring'},
+{fn: 'BusyBee.png', name: 'Busy Bee'},
+{fn: 'Chain_Reaction.png', name: 'Chain Reaction'},
+{fn: 'Chains.png', name: 'Chains'},
+{fn: 'Chilling.png', name: 'Chilling'},
+{fn: 'Committed.png', name: 'Committed'},
+{fn: 'Cool_Down.png', name: 'Cool Down'},
+{fn: 'Cooldown_Shot_(MCD_Enchantment).png', name: 'Cooldown Shot'},
+{fn: 'Cowardice.png', name: ''},
+{fn: 'Critical_Hit.png', name: ''},
+{fn: 'Death_Barter.png', name: ''},
+{fn: 'Deflect.png', name: ''},
+{fn: 'Dipping_Poison.png', name: ''},
+{fn: 'DynamoMelee.png', name: ''},
+{fn: 'DynamoRanged.png', name: ''},
+{fn: 'Echo.png', name: ''},
+{fn: 'Electrified.png', name: ''},
+{fn: 'Emerald_Shield.png', name: ''},
+{fn: 'Enigma_Resonator.png', name: ''},
+{fn: 'Environmental_Protection.png', name: ''},
+{fn: 'Exploding.png', name: ''},
+{fn: 'Explorer.png', name: ''},
+{fn: 'Final_Shout.png', name: ''},
+{fn: 'Fire_Aspect.png', name: ''},
+{fn: 'FireFocus_(MCD_Enchantment).png', name: ''},
+{fn: 'Fire_Trail.png', name: ''},
+{fn: 'Food_Reserves.png', name: ''},
+{fn: 'Freezing.png', name: ''},
+{fn: 'Frenzied.png', name: ''},
+{fn: 'Fuse_Shot.png', name: ''},
+{fn: 'Gravity.png', name: ''},
+{fn: 'Gravity_Pulse.png', name: ''},
+{fn: 'Growing.png', name: ''},
+{fn: 'Guarding_Strike_(MCD_Enchantment).png', name: ''},
+{fn: 'Health_Synergy.png', name: ''},
+{fn: 'IllagersBane.png', name: ''},
+{fn: 'Infinity.png', name: ''},
+{fn: 'Leeching.png', name: ''},
+{fn: 'Levitation_Shot.png', name: ''},
+{fn: 'Life_Boost.png', name: ''},
+{fn: 'LightningFocus_(MCD_Enchantment).png', name: ''},
+{fn: 'Looting.png', name: ''},
+{fn: 'Luck_of_the_Sea_(MCD_Enchantment).png', name: ''},
+{fn: 'Lucky_ExplorerIcon.png', name: ''},
+{fn: 'Multi-Charge_(MCD_Enchantment).png', name: ''},
+{fn: 'Multi_Roll.png', name: ''},
+{fn: 'Multishot.png', name: ''},
+{fn: 'Pain_Cycle_(MCD_Enchantment).png', name: ''},
+{fn: 'Piercing.png', name: ''},
+{fn: 'Poison_Cloud.png', name: ''},
+{fn: 'Potion_Barrier.png', name: ''},
+{fn: 'Power.png', name: ''},
+{fn: 'Prospector.png', name: ''},
+{fn: 'Protection.png', name: ''},
+{fn: 'Punch.png', name: ''},
+{fn: 'Radiance.png', name: ''},
+{fn: 'Rampaging.png', name: ''},
+{fn: 'Rapid_Fire.png', name: ''},
+{fn: 'Reckless_(MCD_Enchantment).png', name: ''},
+{fn: 'Recycler.png', name: ''},
+{fn: 'Refreshment_Melee_(MCD_Enchantment).png', name: ''},
+{fn: 'Refreshment_Ranged_(MCD_Enchantment).png', name: ''},
+{fn: 'Ricochet.png', name: ''},
+{fn: 'Roll_Charge.png', name: ''},
+{fn: 'Rushdown.png', name: ''},
+{fn: 'Rush_(MCD_Enchantment).png', name: ''},
+{fn: 'Shadow_Blast.png', name: ''},
+{fn: 'Shadow_Shot.png', name: ''},
+{fn: 'Shadow_Surge_(MCD_Enchantment).png', name: ''},
+{fn: 'Shared_Pain.png', name: ''},
+{fn: 'Sharpness.png', name: ''},
+{fn: 'Shockwave.png', name: ''},
+{fn: 'Shock_Web_(MCD_Enchantment).png', name: ''},
+{fn: 'slash.png', name: ''},
+{fn: 'Smiting.png', name: ''},
+{fn: 'Snowball_(Dungeons).png', name: ''},
+{fn: 'SoulFocus_(MCD_Enchantment).png', name: ''},
+{fn: 'Soul_Siphon.png', name: ''},
+{fn: 'Soul_Speed.png', name: ''},
+{fn: 'Speed_Synergy.png', name: ''},
+{fn: 'Stunning.png', name: ''},
+{fn: 'Supercharge.png', name: ''},
+{fn: 'Surprise_Gift.png', name: ''},
+{fn: 'Swarm_Resistance.png', name: ''},
+{fn: 'Swiftfooted.png', name: ''},
+{fn: 'Tempo_Theft.png', name: ''},
+{fn: 'Thorns.png', name: ''},
+{fn: 'Thundering.png', name: ''},
+{fn: 'T_RadianceRanged_Icon.png', name: ''},
+{fn: 'T_Swirling_Icon.png', name: ''},
+{fn: 'TumbleBee.png', name: ''},
+{fn: 'Unchanting.png', name: ''},
+{fn: 'Void_Shot.png', name: ''},
+{fn: 'Void_Strike.png', name: ''},
+{fn: 'Wild_Rage.png', name: ''},
+]
