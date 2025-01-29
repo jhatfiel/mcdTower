@@ -17,19 +17,24 @@ interface Enchantment {
     meleeName?: string;
     rangedName?: string;
     armorName?: string;
+    image?: any;
+    mask?: any;
 };
 
 (async () => {
     //try {
     const worker = await createWorker('eng');
+    /*
     await worker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: '/0123456789: COMBATMERCHANTBOSS',
     });
     await worker.setParameters({
     });
+    */
     //const slashSrc = await Jimp.read('./images/slash.png');
     //const slashImage = cv.matFromImageData(slashSrc.bitmap);
+    /*
     const enchantmentSrc = (await Jimp.read('./images/Life_Boost.png')).resize({w:92, h:92, mode: ResizeStrategy.HERMITE});
     const enchantmentImage = cv.matFromImageData(enchantmentSrc.bitmap);
     // Split the channels of the template
@@ -49,6 +54,27 @@ interface Enchantment {
         encRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
     }
     new Jimp({width: enchantmentMask.cols, height: enchantmentMask.rows, data: Buffer.from(encRGBA)}).write('enchantmentMask.png');
+    */
+
+    process.stdout.write(`Loading ${enchantments.length} enchantment images....`);
+    for (let e of enchantments) {
+        const src = (await Jimp.read(`./images/${e.fn}`)).resize({w: 92, h: 92, mode: ResizeStrategy.HERMITE});
+        e.image = cv.matFromImageData(src.bitmap);
+        const rgba = new cv.MatVector();
+        cv.split(e.image, rgba);
+        const alpha = rgba.get(3);
+        const bmask = new cv.Mat();
+        e.mask = new cv.Mat(bmask.rows, bmask.cols, cv.CV_8UC4);
+        cv.threshold(alpha, bmask, 128, 255, cv.THRESH_BINARY);
+        for (let i=0; i<e.mask.rows*e.mask.cols; i++) {
+            const value = e.mask.data[i];
+            e.mask.data[i*4] = value;
+            e.mask.data[i*4+1] = value;
+            e.mask.data[i*4+2] = value;
+            e.mask.data[i*4+3] = 255;
+        }
+    };
+    console.log('done!');
 
     // item selection screen
     //const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [120, 50, 50, 0]); // lower green
@@ -91,20 +117,31 @@ interface Enchantment {
         if (isSelectionScreen) {
             found = true;
 
-            let matchResult = new cv.Mat();
-            cv.matchTemplate(image, enchantmentImage, matchResult, cv.TM_CCOEFF_NORMED, enchantmentMask);
-            for (let y=0; y<matchResult.rows; y++) {
-                for (let x=0; x<matchResult.cols; x++) {
-                    const score = matchResult.floatAt(y, x);
-                    if (score > 0.6) {
-                        console.log(`FOUND ENCHANTMENT MATCH! ${x},${y} = ${score}`);
-                        let color = new cv.Scalar(0, 255, 0, 255);
-                        let pointA = new cv.Point(x, y);
-                        let pointB = new cv.Point(x + enchantmentImage.cols, y + enchantmentImage.rows);
-                        cv.rectangle(image, pointA, pointB, color, 2, cv.LINE_8, 0);
+            let now = Date.now();
+            process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
+            const xOffset = 1200;
+            const yOffset = 600;
+            const roi = image.roi(new  cv.Rect(xOffset, yOffset, 700, 250));
+            new Jimp({width: roi.cols, height: roi.rows, data: Buffer.from(roi.data)}).write('roi.png');
+            enchantments.forEach((e, ind) => {
+                process.stdout.write(`${ind.toString().padStart(3)}/${enchantments.length} Scanning enchantment images....\r`);
+                let matchResult = new cv.Mat();
+                cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCOEFF_NORMED, e.mask);
+                for (let y=0; y<matchResult.rows; y++) {
+                    for (let x=0; x<matchResult.cols; x++) {
+                        const score = matchResult.floatAt(y, x);
+                        if (score > 0.10) {
+                            console.log(`FOUND ${e.name} MATCH! ${xOffset+x},${yOffset+y} = ${score}`);
+                            let color = new cv.Scalar(0, 255, 0, 255);
+                            let pointA = new cv.Point(xOffset+x, yOffset+y);
+                            let pointB = new cv.Point(xOffset+x + e.image.cols, yOffset+y + e.image.rows);
+                            cv.rectangle(image, pointA, pointB, color, 2, cv.LINE_8, 0);
+                        }
                     }
                 }
-            }
+            });
+            console.log(`\nComplete! (${Math.trunc(Date.now()-now)/1000})s`);
+
             /*
             cv.threshold(matchResult, matchResult, 0.60, 1, cv.THRESH_BINARY);
             matchResult.convertTo(matchResult, cv.CV_8UC1);
@@ -381,93 +418,92 @@ const enchantments: Enchantment[] = [
 {fn: 'Chains.png', name: 'Chains'},
 {fn: 'Chilling.png', name: 'Chilling'},
 {fn: 'Committed.png', name: 'Committed'},
-{fn: 'Cool_Down.png', name: 'Cool Down'},
+{fn: 'Cool_Down.png', name: 'Cooldown'},
 {fn: 'Cooldown_Shot_(MCD_Enchantment).png', name: 'Cooldown Shot'},
-{fn: 'Cowardice.png', name: ''},
-{fn: 'Critical_Hit.png', name: ''},
-{fn: 'Death_Barter.png', name: ''},
-{fn: 'Deflect.png', name: ''},
-{fn: 'Dipping_Poison.png', name: ''},
-{fn: 'DynamoMelee.png', name: ''},
-{fn: 'DynamoRanged.png', name: ''},
-{fn: 'Echo.png', name: ''},
-{fn: 'Electrified.png', name: ''},
-{fn: 'Emerald_Shield.png', name: ''},
-{fn: 'Enigma_Resonator.png', name: ''},
-{fn: 'Environmental_Protection.png', name: ''},
-{fn: 'Exploding.png', name: ''},
-{fn: 'Explorer.png', name: ''},
-{fn: 'Final_Shout.png', name: ''},
-{fn: 'Fire_Aspect.png', name: ''},
-{fn: 'FireFocus_(MCD_Enchantment).png', name: ''},
-{fn: 'Fire_Trail.png', name: ''},
-{fn: 'Food_Reserves.png', name: ''},
-{fn: 'Freezing.png', name: ''},
-{fn: 'Frenzied.png', name: ''},
-{fn: 'Fuse_Shot.png', name: ''},
-{fn: 'Gravity.png', name: ''},
-{fn: 'Gravity_Pulse.png', name: ''},
-{fn: 'Growing.png', name: ''},
-{fn: 'Guarding_Strike_(MCD_Enchantment).png', name: ''},
-{fn: 'Health_Synergy.png', name: ''},
-{fn: 'IllagersBane.png', name: ''},
-{fn: 'Infinity.png', name: ''},
-{fn: 'Leeching.png', name: ''},
-{fn: 'Levitation_Shot.png', name: ''},
-{fn: 'Life_Boost.png', name: ''},
-{fn: 'LightningFocus_(MCD_Enchantment).png', name: ''},
-{fn: 'Looting.png', name: ''},
-{fn: 'Luck_of_the_Sea_(MCD_Enchantment).png', name: ''},
-{fn: 'Lucky_ExplorerIcon.png', name: ''},
-{fn: 'Multi-Charge_(MCD_Enchantment).png', name: ''},
-{fn: 'Multi_Roll.png', name: ''},
-{fn: 'Multishot.png', name: ''},
-{fn: 'Pain_Cycle_(MCD_Enchantment).png', name: ''},
-{fn: 'Piercing.png', name: ''},
-{fn: 'Poison_Cloud.png', name: ''},
-{fn: 'Potion_Barrier.png', name: ''},
-{fn: 'Power.png', name: ''},
-{fn: 'Prospector.png', name: ''},
-{fn: 'Protection.png', name: ''},
-{fn: 'Punch.png', name: ''},
-{fn: 'Radiance.png', name: ''},
-{fn: 'Rampaging.png', name: ''},
-{fn: 'Rapid_Fire.png', name: ''},
-{fn: 'Reckless_(MCD_Enchantment).png', name: ''},
-{fn: 'Recycler.png', name: ''},
-{fn: 'Refreshment_Melee_(MCD_Enchantment).png', name: ''},
-{fn: 'Refreshment_Ranged_(MCD_Enchantment).png', name: ''},
-{fn: 'Ricochet.png', name: ''},
-{fn: 'Roll_Charge.png', name: ''},
-{fn: 'Rushdown.png', name: ''},
-{fn: 'Rush_(MCD_Enchantment).png', name: ''},
-{fn: 'Shadow_Blast.png', name: ''},
-{fn: 'Shadow_Shot.png', name: ''},
-{fn: 'Shadow_Surge_(MCD_Enchantment).png', name: ''},
-{fn: 'Shared_Pain.png', name: ''},
-{fn: 'Sharpness.png', name: ''},
-{fn: 'Shockwave.png', name: ''},
-{fn: 'Shock_Web_(MCD_Enchantment).png', name: ''},
-{fn: 'slash.png', name: ''},
-{fn: 'Smiting.png', name: ''},
-{fn: 'Snowball_(Dungeons).png', name: ''},
-{fn: 'SoulFocus_(MCD_Enchantment).png', name: ''},
-{fn: 'Soul_Siphon.png', name: ''},
-{fn: 'Soul_Speed.png', name: ''},
-{fn: 'Speed_Synergy.png', name: ''},
-{fn: 'Stunning.png', name: ''},
-{fn: 'Supercharge.png', name: ''},
-{fn: 'Surprise_Gift.png', name: ''},
-{fn: 'Swarm_Resistance.png', name: ''},
-{fn: 'Swiftfooted.png', name: ''},
-{fn: 'Tempo_Theft.png', name: ''},
-{fn: 'Thorns.png', name: ''},
-{fn: 'Thundering.png', name: ''},
-{fn: 'T_RadianceRanged_Icon.png', name: ''},
-{fn: 'T_Swirling_Icon.png', name: ''},
-{fn: 'TumbleBee.png', name: ''},
-{fn: 'Unchanting.png', name: ''},
-{fn: 'Void_Shot.png', name: ''},
-{fn: 'Void_Strike.png', name: ''},
-{fn: 'Wild_Rage.png', name: ''},
-]
+{fn: 'Cowardice.png', name: 'Cowardice'},
+{fn: 'Critical_Hit.png', name: 'Critical Hit'},
+{fn: 'Death_Barter.png', name: 'Death Barter'},
+{fn: 'Deflect.png', name: 'Deflect'},
+{fn: 'Dipping_Poison.png', name: 'Dipping Poison'},
+{fn: 'DynamoMelee.png', name: 'Dynamo'},
+{fn: 'DynamoRanged.png', name: 'Dynamo'},
+{fn: 'Echo.png', name: 'Echo'},
+{fn: 'Electrified.png', name: 'Electrified'},
+{fn: 'Emerald_Shield.png', name: 'Emerald Shield'},
+{fn: 'Enigma_Resonator.png', name: 'Enigma Resonator'},
+{fn: 'Environmental_Protection.png', name: 'Environmental Protection'},
+{fn: 'Exploding.png', name: 'Exploding'},
+{fn: 'Explorer.png', name: 'Explorer'},
+{fn: 'Final_Shout.png', name: 'Final Shout'},
+{fn: 'Fire_Aspect.png', name: 'Fire Aspect'},
+{fn: 'FireFocus_(MCD_Enchantment).png', name: 'Fire Focus'},
+{fn: 'Fire_Trail.png', name: 'Fire Trail'},
+{fn: 'Food_Reserves.png', name: 'Food Reserves'},
+{fn: 'Freezing.png', name: 'Freezing'},
+{fn: 'Frenzied.png', name: 'Frenzied'},
+{fn: 'Fuse_Shot.png', name: 'Fuse Shot'},
+{fn: 'Gravity.png', name: 'Gravity'},
+{fn: 'Gravity_Pulse.png', name: 'Gravity Pulse'},
+{fn: 'Growing.png', name: 'Growing'},
+{fn: 'Guarding_Strike_(MCD_Enchantment).png', name: 'Guarding Strike'},
+{fn: 'Health_Synergy.png', name: 'Health Synergy'},
+{fn: 'IllagersBane.png', name: `Illager's Bane`},
+{fn: 'Infinity.png', name: 'Infinity'},
+{fn: 'Leeching.png', name: 'Leeching'},
+{fn: 'Levitation_Shot.png', name: 'Levitation Shot'},
+{fn: 'Life_Boost.png', name: 'Life Boost'},
+{fn: 'LightningFocus_(MCD_Enchantment).png', name: 'Lightning Focus'},
+{fn: 'Looting.png', name: 'Looting'},
+{fn: 'Luck_of_the_Sea_(MCD_Enchantment).png', name: 'Luck of the Sea'},
+{fn: 'Lucky_ExplorerIcon.png', name: 'Lucky Explorer'},
+{fn: 'Multi-Charge_(MCD_Enchantment).png', name: 'Multi Charge'},
+{fn: 'Multi_Roll.png', name: 'Multi Roll'},
+{fn: 'Multishot.png', name: 'Multishot'},
+{fn: 'Pain_Cycle_(MCD_Enchantment).png', name: 'Pain Cycle'},
+{fn: 'Piercing.png', name: 'Piercing'},
+{fn: 'Poison_Cloud.png', name: 'Poison Cloud'},
+{fn: 'Potion_Barrier.png', name: 'Potion Barrier'},
+{fn: 'Power.png', name: 'Power'},
+{fn: 'Prospector.png', name: 'Prospector'},
+{fn: 'Protection.png', name: 'Protection'},
+{fn: 'Punch.png', name: 'Punch'},
+{fn: 'Radiance.png', name: 'Radiance'},
+{fn: 'Rampaging.png', name: 'Rampaging'},
+{fn: 'Rapid_Fire.png', name: 'Rapid Fire'},
+{fn: 'Reckless_(MCD_Enchantment).png', name: 'Reckless'},
+{fn: 'Recycler.png', name: 'Recycler'},
+{fn: 'Refreshment_Melee_(MCD_Enchantment).png', name: 'Refreshment'},
+{fn: 'Refreshment_Ranged_(MCD_Enchantment).png', name: 'Refreshment'},
+{fn: 'Ricochet.png', name: 'Ricochet'},
+{fn: 'Roll_Charge.png', name: 'Roll Charge'},
+{fn: 'Rushdown.png', name: 'Rushdown'},
+{fn: 'Rush_(MCD_Enchantment).png', name: 'Rush'},
+{fn: 'Shadow_Blast.png', name: 'Shadow Blast'},
+{fn: 'Shadow_Shot.png', name: 'Shadow Shot'},
+{fn: 'Shadow_Surge_(MCD_Enchantment).png', name: 'Shadow Surge'},
+//{fn: 'Shared_Pain.png', name: 'Shared Pain'},
+{fn: 'Sharpness.png', name: 'Sharpness'},
+{fn: 'Shockwave.png', name: 'Shockwave'},
+{fn: 'Shock_Web_(MCD_Enchantment).png', name: 'Shock Web'},
+{fn: 'Smiting.png', name: 'Smiting'},
+{fn: 'Snowball_(Dungeons).png', name: 'Snowball'},
+{fn: 'SoulFocus_(MCD_Enchantment).png', name: 'Soul Focus'},
+{fn: 'Soul_Siphon.png', name: 'Soul Siphon'},
+{fn: 'Soul_Speed.png', name: 'Soul Speed'},
+{fn: 'Speed_Synergy.png', name: 'Speed Synergy'},
+{fn: 'Stunning.png', name: 'Stunning'},
+{fn: 'Supercharge.png', name: 'Supercharge'},
+{fn: 'Surprise_Gift.png', name: 'Surprise Gift'},
+{fn: 'Swarm_Resistance.png', name: 'Swarm Resistance'},
+{fn: 'Swiftfooted.png', name: 'Swiftfooted'},
+{fn: 'Tempo_Theft.png', name: 'Tempo Theft'},
+{fn: 'Thorns.png', name: 'Thorns'},
+{fn: 'Thundering.png', name: 'Thundering'},
+{fn: 'T_RadianceRanged_Icon.png', name: 'Radiance'},
+{fn: 'T_Swirling_Icon.png', name: 'Swirling'},
+{fn: 'TumbleBee.png', name: 'Tumblebee'},
+{fn: 'Unchanting.png', name: 'Unchanting'},
+{fn: 'Void_Shot.png', name: 'Void Shot'},
+{fn: 'Void_Strike.png', name: 'Void Strike'},
+{fn: 'Wild_Rage.png', name: 'Wild Rage'},
+].filter(e => ['Food Reserves', 'Life Boost', 'Shadow Blast', 'Shadow Surge', 'Cooldown'].indexOf(e.name) !== -1);
