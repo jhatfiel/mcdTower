@@ -21,6 +21,30 @@ interface Enchantment {
     mask?: any;
 };
 
+interface Item {
+    name: string;
+    enchantments: string[];
+};
+
+interface EnchantmentMatch {
+    name: string;
+    score: number;
+};
+
+interface Tower {
+    items: Item[][]; // array for each floor completed - 0 is what you start with, 1 is what you get after 1, etc
+};
+
+const tower: Tower = {items: [[
+    {name: 'Sword', enchantments: []},
+    {name: 'Mercenary Armor', enchantments: []},
+    {name: 'Bow', enchantments: []},
+]]};
+
+function logMatInfo(mat, prefix='') {
+    console.log(`${prefix} (RxC)=(${mat.cols}x${mat.rows}), size=(${mat.size().width}*${mat.size().height}), depth=${mat.depth()}, channels=${mat.channels()}, type=${mat.type()}`);
+}
+
 (async () => {
     //try {
     const worker = await createWorker('eng');
@@ -62,18 +86,20 @@ interface Enchantment {
         e.image = cv.matFromImageData(src.bitmap);
 
         // Extract alpha channel as mask
-        const rgba = new cv.MatVector();
+        let rgba = new cv.MatVector();
         cv.split(e.image, rgba);
         e.mask = new cv.Mat();
         cv.threshold(rgba.get(3), e.mask, 1, 255, cv.THRESH_BINARY);
-        e.mask.convertTo(e.mask, cv.CV_8U);
 
-        // Convert template to grayscale
-        cv.cvtColor(e.image, e.image, cv.COLOR_RGBA2GRAY);
-        e.image.convertTo(e.image, cv.CV_8U);
+        rgba = new cv.MatVector();
+        //rgba.push_back(e.mask);
+        rgba.push_back(e.mask);
+        rgba.push_back(e.mask);
+        rgba.push_back(e.mask);
+        rgba.push_back(new cv.Mat.zeros(e.mask.rows, e.mask.cols, cv.CV_8U));
 
-        // Ensure mask matches `e.image`
-        cv.resize(e.mask, e.mask, new cv.Size(e.image.cols, e.image.rows), 0, 0, cv.INTER_NEAREST);
+        cv.merge(rgba, e.mask);
+
         /*
         const data = new Uint8Array(e.mask.rows*e.mask.cols*4);
         for (let i=0; i<e.mask.rows*e.mask.cols; i++) {
@@ -85,8 +111,9 @@ interface Enchantment {
         }
         new Jimp({width: e.mask.cols, height: e.mask.rows, data: Buffer.from(data)}).write('enchantmentMask.png');
         */
-        console.log(`Template Size: ${e.image.cols}x${e.image.rows}`);
-        console.log(`Mask Size: ${e.mask.cols}x${e.mask.rows}`);
+        // the mask should have a CV_8U or CV_32F depth and the same number of channels as the template image
+        //logMatInfo(e.image, 'Enchantment Template');
+        //logMatInfo(e.mask, `Enchantment Mask`);
     };
     console.log('done!');
 
@@ -109,6 +136,7 @@ interface Enchantment {
         // Read the input i/mage
         const jimpSrc = await Jimp.read(fn);
         const image = cv.matFromImageData(jimpSrc.bitmap);
+        logMatInfo(image, 'Base image');
         const itemSelectImage = new cv.Mat();
 
         // first, see if this is an item selection screen
@@ -132,51 +160,59 @@ interface Enchantment {
             found = true;
 
             let now = Date.now();
-            process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
+            //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
             const xOffset = 1250;
             const yOffset = 700;
             const buffer = 100;
             const roi = image.roi(new cv.Rect(xOffset-buffer, yOffset-buffer, 520+2*buffer, 135+2*buffer));
+            //logMatInfo(roi, 'roi');
             /*
             const roiBGR = new cv.Mat();
             cv.cvtColor(roi, roiBGR, cv.COLOR_BGR2BGRA);
             new Jimp({width: roiBGR.cols, height: roiBGR.rows, data: Buffer.from(roiBGR.data)}).write('roi.png');
             */
-            cv.cvtColor(roi, roi, cv.COLOR_BGR2GRAY);
-            roi.convertTo(roi, cv.CV_8U);
 
             let rectArr: any[][] = []; 
             enchantments.forEach((e, ind) => {
-                process.stdout.write(`${ind.toString().padStart(3)}/${enchantments.length} Scanning enchantment images....\r`);
+                //process.stdout.write(`${ind.toString().padStart(3)}/${enchantments.length} Scanning enchantment images ${e.name}\r`);
+                console.log(e.name);
                 let matchResult = new cv.Mat();
-                e.image.convertTo(e.image, cv.CV_8U);
-                e.mask.convertTo(e.mask, cv.CV_8U);
-                cv.resize(e.mask, e.mask, new cv.Size(e.image.cols, e.image.rows), 0, 0, cv.INTER_NEAREST);
-                console.log(`Trying matchTemplate`);
-                console.log(`ROI: ${roi.cols}x${roi.rows}, Image: ${e.image.cols}x${e.image.rows}, Mask: ${e.mask.cols}x${e.mask.rows}`);
-                cv.matchTemplate(roi, e.image, matchResult, cv.TM_SQDIFF_NORMED)//, e.mask);
-                console.log(`Score at 1240,709=${matchResult.floatAt(709-yOffset+buffer, 1240-xOffset+buffer)}`);
-                console.log(`Score at 1241,709=${matchResult.floatAt(709-yOffset+buffer, 1241-xOffset+buffer)}`);
-                console.log(`Score at 1240,710=${matchResult.floatAt(710-yOffset+buffer, 1240-xOffset+buffer)}`);
-                console.log(`Score at 1241,710=${matchResult.floatAt(710-yOffset+buffer, 1241-xOffset+buffer)}`);
-                console.log(`Score at 1341,710=${matchResult.floatAt(710-yOffset+buffer, 1341-xOffset+buffer)}`);
-                console.log(`Score at 1441,710=${matchResult.floatAt(710-yOffset+buffer, 1441-xOffset+buffer)}`);
-                console.log(`Score at 1541,710=${matchResult.floatAt(710-yOffset+buffer, 1541-xOffset+buffer)}`);
-                console.log(`Score at 1641,710=${matchResult.floatAt(710-yOffset+buffer, 1641-xOffset+buffer)}`);
+                //console.log(`Trying matchTemplate`);
+                try {
+                cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCORR_NORMED, e.mask);
+                } catch (err) { console.trace(cvTranslateError(cv, err)); }
                 /*
+                console.log(`[${e.name}] Score at 1240,709=${matchResult.floatAt(709-yOffset+buffer, 1240-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1241,709=${matchResult.floatAt(709-yOffset+buffer, 1241-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1240,710=${matchResult.floatAt(710-yOffset+buffer, 1240-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1241,710=${matchResult.floatAt(710-yOffset+buffer, 1241-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1341,710=${matchResult.floatAt(710-yOffset+buffer, 1341-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1441,710=${matchResult.floatAt(710-yOffset+buffer, 1441-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1541,710=${matchResult.floatAt(710-yOffset+buffer, 1541-xOffset+buffer)}`);
+                console.log(`[${e.name}] Score at 1641,710=${matchResult.floatAt(710-yOffset+buffer, 1641-xOffset+buffer)}`);
+                /*/
                 for (let y=0; y<matchResult.rows; y++) {
                     for (let x=0; x<matchResult.cols; x++) {
                         const score = matchResult.floatAt(y, x);
-                        if (score > 0.32) {
-                        //if (score > 45000000) {
-                            console.log(`FOUND ${e.name} MATCH! ${xOffset-buffer+x},${yOffset-buffer+y} = ${score}`);
-                            let pointA = new cv.Point(xOffset-buffer+x, yOffset-buffer+y);
-                            let pointB = new cv.Point(xOffset-buffer+x + e.image.cols, yOffset-buffer+y + e.image.rows);
+                        if (score > 0.92) {
+                            let xReal = xOffset-buffer+x;
+                            let yReal = yOffset-buffer+y;
+                            let slot = 0;
+                            let row = Math.round(Math.abs(yReal-709)/41);
+                            let col = xReal-1241;
+                            if (col > 120) { col -= 185; slot += 3; }
+                            if (col > 120) { col -= 185; slot += 3; }
+                            col = Math.round(Math.abs(col)/88);
+                            if (row === 1) slot += 2;
+                            else slot += col;
+                            console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
+                            let pointA = new cv.Point(xReal, yReal);
+                            let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
                             rectArr.push([pointA, pointB]);
                         }
                     }
                 }
-                */
+                //*/
             });
             let color = new cv.Scalar(0, 255, 0, 255);
             rectArr.forEach(r => cv.rectangle(image, r[0], r[1], color, 2, cv.LINE_8, 0));
@@ -234,7 +270,7 @@ interface Enchantment {
             }
 
             const nextFloorJimp = new Jimp({width: nextFloorGS.cols, height: nextFloorGS.rows, data: Buffer.from(nextFloorRGBA)})
-            nextFloorJimp.write('level.png');
+            //nextFloorJimp.write('level.png');
             /*
             const nextFloorJimp = new Jimp({
                 width: 500,
@@ -546,5 +582,6 @@ const enchantments: Enchantment[] = [
 {fn: 'Void_Shot.png', name: 'Void Shot'},
 {fn: 'Void_Strike.png', name: 'Void Strike'},
 {fn: 'Wild_Rage.png', name: 'Wild Rage'},
-//].filter(e => ['Food Reserves', 'Life Boost', 'Shadow Blast', 'Shadow Surge', 'Cooldown'].indexOf(e.name) !== -1);
-].filter(e => ['Food Reserves'].indexOf(e.name) !== -1);
+];
+//].filter(e => ['Pain Cycle', 'Food Reserves', 'Life Boost', 'Shadow Blast', 'Shadow Surge', 'Cooldown'].indexOf(e.name) !== -1);
+//].filter(e => ['Food Reserves', 'Pain Cycle'].indexOf(e.name) !== -1);
