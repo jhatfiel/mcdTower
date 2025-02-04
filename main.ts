@@ -12,34 +12,35 @@ const HSV_MAT_TYPE = 16;
 const RGB_MAT_TYPE = 24;
 
 interface Enchantment {
-    fn: string;
-    name: string;
-    meleeName?: string;
-    rangedName?: string;
-    armorName?: string;
-    image?: any;
-    mask?: any;
+    fn: string
+    name: string
+    meleeName?: string
+    rangedName?: string
+    armorName?: string
+    image?: any
+    mask?: any
 };
 
 interface Item {
-    name: string;
-    enchantments: string[];
-    confidence: number[];
+    name: string
+    possibleNames: Map<string, number>
+    enchantments: string[]
+    confidence: number[]
 };
 
 interface EnchantmentMatch {
-    name: string;
-    score: number;
+    name: string
+    score: number
 };
 
 interface Floor {
-    num: number;
-    type: string;
-    rewards: Item[];
+    num: number
+    type: string
+    rewards: Item[]
 }
 
 interface Tower {
-    floors: Floor[];
+    floors: Floor[]
 };
 
 function emptyEnchantments(): string[] { return new Array(9).fill(''); }
@@ -48,9 +49,9 @@ function emptyConfidence(): number[] { return new Array(9).fill(0); }
 const tower: Tower = {
     floors: [
         {num: 0, type: 'START', rewards: [
-            {name: 'Sword', enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Mercenary Armor', enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Bow', enchantments: emptyEnchantments(), confidence: emptyConfidence()}
+            {name: 'Sword', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
+            {name: 'Mercenary Armor', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
+            {name: 'Bow', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()}
         ]}
     ]
 };
@@ -67,9 +68,10 @@ function logMatInfo(mat, prefix='') {
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: '/0123456789: COMBATMERCHANTBOSS',
     });
-    await worker.setParameters({
-    });
     */
+    await worker.setParameters({
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
+    });
     //const slashSrc = await Jimp.read('./images/slash.png');
     //const slashImage = cv.matFromImageData(slashSrc.bitmap);
     /*
@@ -151,9 +153,9 @@ function logMatInfo(mat, prefix='') {
 
     //for (let fn of globSync('videos/*.png').sort()
     //for await (let fn of globSync('videos/out000550.png').sort()) {
-    for await (let fn of globSync('videos/*.png').sort()) {
-    //for await (let fn of ['out000547.png']) {
-        if (!fn.startsWith('videos\\out0005')) continue;
+    //for await (let fn of globSync('videos/*.png').sort()) {
+    for await (let fn of ['out000547.png']) {
+        //if (!fn.startsWith('videos\\out0005')) continue;
         console.error(fn);
         let found = false;
 
@@ -363,17 +365,24 @@ function logMatInfo(mat, prefix='') {
                     console.error(`!!!!!!!!!!!!!!!!!!!!!!!!!!${fn} couldn't find highlight`);
                 } else {
                     // find item name
-                    let {data: {text}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 200, left: 1230, width: 670, height: 100}
+                    let {data: {text: line1}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                        rectangle: { top: 205, left: 1230, width: 670, height: 45}
                     });
-                    console.error(`Found name: ${text}`);
+                    let {data: {text: line2}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                        rectangle: { top: 250, left: 1230, width: 670, height: 45}
+                    });
+                    let tessName = (`${line1} ${line2}`).replace(/\n/g, ' ');
+                    // use Damerau-Levenshtein for each item sorted by cosine similarity
+                    let name = tessName
+                    console.error(`Found name: ${name}`);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
                     let item = floor.rewards[itemNum];
                     if (item === undefined) {
-                        item = { name: text, enchantments: emptyEnchantments(), confidence: emptyConfidence() };
+                        item = { name, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence() };
                         floor.rewards[itemNum] = item;
                     }
+                    item.possibleNames.set(name, (item.possibleNames.get(name)??0)+1);
 
                     //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
                     const xOffset = 1250;
@@ -503,8 +512,17 @@ function logMatInfo(mat, prefix='') {
                 } else {
                     let numRewards = (lastFloorNum === 0)?3:5;
                     for (let i=0; i<numRewards; i++) {
-                        let reward = floor.rewards[i] ?? { name: 'N/A', enchantments: emptyEnchantments(), confidence: emptyConfidence()};
-                        console.log(`${lastFloorNum}\t${reward.name}\t${reward.enchantments.join('\t')}`);
+                        let mostFound = 0;
+                        let name = 'N/A';
+                        let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
+                        for (let n of Object.keys(reward.possibleNames.keys())) {
+                            let c = reward.possibleNames.get(n);
+                            if (c > mostFound) {
+                                mostFound = c;
+                                name = n;
+                            }
+                        }
+                        console.log(`${lastFloorNum}\t${name}\t${reward.enchantments.join('\t')}`);
                     }
                 }
             }
@@ -525,6 +543,29 @@ function logMatInfo(mat, prefix='') {
     //} catch (err) {
         //console.trace(cvTranslateError(cv, err));
     //}
+
+    let floor = tower.floors[lastFloorNum];
+    if (floor.type === 'MERCHANT') {
+        console.log(`${lastFloorNum}\t\t`);
+    } else {
+        let numRewards = (lastFloorNum === 0)?3:5;
+        for (let i=0; i<numRewards; i++) {
+            let mostFound = 0;
+            let name = 'N/A';
+            let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
+            let iter = reward.possibleNames.entries();
+            while (true) {
+                let entry = iter.next();
+                if (entry.done) break;
+                console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
+                if (entry.value[1] > mostFound) {
+                    mostFound = entry.value[1];
+                    name = entry.value[0];
+                }
+            }
+            console.log(`${lastFloorNum}\t${name}\t${reward.enchantments.join('\t')}`);
+        }
+    }
 })();
 
 /*
@@ -628,6 +669,278 @@ fs.readdirSync(outputDir).forEach(file => {
     analyzeFrame(`${outputDir}/${file}`);
 });
 */
+
+const items: string[] = [
+'Anchor',
+'Encrusted Anchor',
+'Axe',
+'Firebrand',
+'Highland Axe',
+'Backstabber',
+'Swift Striker',
+'Battlestaff',
+'Battlestaff of Terror',
+'Growing Staff',
+'Boneclub',
+'Bone Cudgel',
+'Broken Sawblade',
+'Mechanized Sawblade',
+'Claymore',
+'Broadsword',
+'Frost Slayer',
+'Great Axeblade',
+'Heartstealer',
+'Coral Blade',
+'Sponge Striker',
+'Cutlass',
+'Dancer\'s Sword',
+'Nameless Blade',
+'Sparkler',
+'Daggers',
+'Fangs of Frost',
+'Moon Daggers',
+'Sheer Daggers',
+'Double Axe',
+'Cursed Axe',
+'Whirlwind',
+'Gauntlets',
+'Fighter\'s Bindings',
+'Maulers',
+'Soul Fists',
+'Bow',
+'Bonebow',
+'Haunted Bow',
+'Twin Bow',
+'Bubble Bow',
+'Bubble Burster',
+'Gloopy Bow',
+'Burst Crossbow',
+'Corrupted Crossbow',
+'Soul Hunter Crossbow',
+'Cog Crossbow',
+'Pride of the Piglins',
+'Crossbow',
+'Azure Seeker',
+'The Slicer',
+'Dual Crossbows',
+'Baby Crossbows',
+'Spellbound Crossbows',
+'Exploding Crossbow',
+'Firebolt Thrower',
+'Imploding Crossbow',
+'Harpoon Crossbow',
+'Nautical Crossbow',
+'Heavy Crossbow',
+'Doom Crossbow',
+'Slayer Crossbow',
+'Hunting Bow',
+'Ancient Bow',
+'Hunter\'s Promise',
+'Master\'s Bow',
+'Longbow',
+'Guardian Bow',
+'Red Snake',
+'Power Bow',
+'Elite Power Bow',
+'Phantom Bow',
+'Sabrewing',
+'Battle Robe',
+'Splendid Robe',
+'Beenest Armor',
+'Beehive Armor',
+'Champion\'s Armor',
+'Hero\'s Armor',
+'Climbing Gear',
+'Goat Gear',
+'Rugged Climbing Gear',
+'Dark Armor',
+'Titan\'s Shroud',
+'Emerald Gear',
+'Gilded Glory',
+'Opulent Armor',
+'Entertainer\'s Garb',
+'The Troubadour',
+'Evocation Robe',
+'Ember Robe',
+'Verdant Robe',
+'Ghostly Armor',
+'Cloaked Skull',
+'Ghost Kindler',
+'Grim Armor',
+'The Spooky Gourdian',
+'Wither Armor',
+'Guard\'s Armor',
+'Hunter\'s Armor',
+'Archer\'s Armor',
+'Mercenary Armor',
+'Hungriest Horror',
+'Hungry Horror',
+'Renegade Armor',
+'Mystery Armor',
+'Blast Fungus',
+'Boots of Swiftness',
+'Buzzy Nest',
+'Corrupted Beacon',
+'Corrupted Pumpkin',
+'Corrupted Seeds',
+'Death Cap Mushroom',
+'Enchanted Grass',
+'Enchanter\'s Tome',
+'Eye of the Guardian',
+'Fireworks Arrow',
+'Fishing Rod',
+'Flaming Quiver',
+'Ghost Cloak',
+'Golem Kit',
+'Gong of Weakening',
+'Harpoon Quiver',
+'Harvester',
+'Ice Wand',
+'Iron Hide Amulet',
+'Light Feather',
+'Lightning Rod',
+'Love Medallion',
+'Powershaker',
+'Satchel of Elixirs',
+'Satchel of Elements',
+'Satchel of Snacks',
+'Scatter Mines',
+'Shadow Shifter',
+'Shock Powder',
+'Soul Healer',
+'Soul Lantern',
+'Spinblade',
+'Tasty Bone',
+'Thundering Quiver',
+'Torment Quiver',
+'Totem of Casting',
+'Totem of Regeneration',
+'Totem of Shielding',
+'Tome of Duplication',
+'Updraft Tome',
+'Vexing Chant',
+'Void Quiver',
+'Wind Horn',
+'Wonderful Wheat',
+'Glaive',
+'Cackling Broom',
+'Grave Bane',
+'Venom Glaive',
+'Great Hammer',
+'Bonehead Hammer',
+'Hammer of Gravity',
+'Stormlander',
+'Katana',
+'Dark Katana',
+'Master\'s Katana',
+'Mace',
+'Flail',
+'Sun\'s Grace',
+'Obsidian Claymore',
+'The Starless Night',
+'Pickaxe',
+'Diamond Pickaxe',
+'Rapier',
+'Bee Stinger',
+'Freezing Foil',
+'Sickles',
+'Nightmare\'s Bite',
+'The Last Laugh',
+'Soul Knife',
+'Eternal Knife',
+'Truthseeker',
+'Soul Scythe',
+'Frost Scythe',
+'Jailor\'s Scythe',
+'Skull Scythe',
+'Spear',
+'Fortune Spear',
+'Spine-Chill Spear',
+'Whispering Spear',
+'Rapid Crossbow',
+'Auto Crossbow',
+'Butterfly Crossbow',
+'Scatter Crossbow',
+'Harp Crossbow',
+'Lighting Harb Crossbow',
+'Shadow Crossbow',
+'Shrieking Crossbow',
+'Veiled Crossbow',
+'Shortbow',
+'Love Spell Bow',
+'Mechanical Shortbow',
+'Purple Storm',
+'Snow Bow',
+'Webbed Bow',
+'Winter\'s Touch',
+'Soul Bow',
+'Bow of Lost Souls',
+'Nocturnal Bow',
+'Shivering Bow',
+'Soul Crossbow',
+'Feral Soul Crossbow',
+'Voidcaller',
+'Trickbow',
+'The Green Menace',
+'The Pink Scoundrel',
+'Sugar Rush',
+'Twisting Vine Bow',
+'Weeping Vine Bow',
+'Void Bow',
+'Call of the Void',
+'Wind Bow',
+'Burst Gust Bow',
+'Echo of the Valley',
+'Ocelot Armor',
+'Shadow Walker',
+'Phantom Armor',
+'Frost Bite',
+'Piglin Armor',
+'Golden Piglin Armor',
+'Plate Armor',
+'Cauldron Armor',
+'Full Metal Armor',
+'Reinforced Mail',
+'Stalwart Armor',
+'Root Rot Armor',
+'Black Spot Armor',
+'Scale Mail',
+'Highland Armor',
+'Shulker Armor',
+'Sturdy Shulker Armor',
+'Snow Armor',
+'Frost Armor',
+'Soul Robe',
+'Souldancer Robe',
+'Spelunker Armor',
+'Cave Crawler',
+'Sweet Tooth',
+'Sprout Armor',
+'Living Vines Armor',
+'Squid Armor',
+'Glow Squid Armor',
+'Teleportation Robes',
+'Unstable Robes',
+'Thief Armor',
+'Spider Armor',
+'Sword',
+'Diamond Sword',
+'Hawkbrand',
+'Sinister Sword',
+'Tempest Knife',
+'Chill Gale Knife',
+'Resolute Tempest Knife',
+'Void Touched Blades',
+'The Beginning and The End',
+'Whip',
+'Vine Whip',
+'Turtle Armor',
+'Nimble Turtle Armor',
+'Wolf Armor',
+'Artic Fox Armor',
+'Black Wolf Armor',
+'Fox Armor',
+];
 
 const enchantments: Enchantment[] = [
 {fn: 'Accelerate.png', name: 'Accelerate'},
