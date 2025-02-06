@@ -49,9 +49,9 @@ function emptyConfidence(): number[] { return new Array(9).fill(0); }
 const tower: Tower = {
     floors: [
         {num: 0, type: 'START', rewards: [
-            {name: 'Sword', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Mercenary Armor', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Bow', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()}
+            {name: 'Sword', possibleNames: new Map<string, number>([['Sword', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
+            {name: 'Mercenary Armor', possibleNames: new Map<string, number>([['Mercenary Armor', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
+            {name: 'Bow', possibleNames: new Map<string, number>([['Bow', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()}
         ]}
     ]
 };
@@ -71,6 +71,7 @@ function logMatInfo(mat, prefix='') {
     */
     await worker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
+        debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
     //const slashSrc = await Jimp.read('./images/slash.png');
     //const slashImage = cv.matFromImageData(slashSrc.bitmap);
@@ -154,8 +155,10 @@ function logMatInfo(mat, prefix='') {
     //for (let fn of globSync('videos/*.png').sort()
     //for await (let fn of globSync('videos/out000550.png').sort()) {
     //for await (let fn of globSync('videos/*.png').sort()) {
-    for await (let fn of ['out000547.png']) {
-        //if (!fn.startsWith('videos\\out0005')) continue;
+    for await (let fn of globSync('test/*.png').sort()) {
+    //for await (let fn of ['out000547.png']) {
+        //if (!fn.startsWith('test/out000557')) continue;
+        //if (!fn.startsWith('test/out000567')) continue; // nautical crossbow
         console.error(fn);
         let found = false;
 
@@ -270,7 +273,7 @@ function logMatInfo(mat, prefix='') {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
             text = text.replace('\n', ' ');
-            console.log(`Detected text: [${text}]`);
+            //console.log(`Detected text: [${text}]`);
             let match = text.match(/^(\d+)\/(\d+)\: (.*)$/);
             if (match) {
                 now = Date.now();
@@ -361,28 +364,38 @@ function logMatInfo(mat, prefix='') {
                     croppedImage.delete();
                 }
 
-                if (itemNum === undefined) {
-                    console.error(`!!!!!!!!!!!!!!!!!!!!!!!!!!${fn} couldn't find highlight`);
-                } else {
+                if (itemNum != undefined && itemNum < 5) {
                     // find item name
                     let {data: {text: line1}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 205, left: 1230, width: 670, height: 45}
+                        rectangle: { top: 210, left: 1230, width: 670, height: 45}
                     });
                     let {data: {text: line2}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 250, left: 1230, width: 670, height: 45}
+                        rectangle: { top: 260, left: 1230, width: 670, height: 45}
                     });
-                    let tessName = (`${line1} ${line2}`).replace(/\n/g, ' ');
+                    let tessName = (`${line1}${line2}`).replace(/\n/g, ' ').trim();
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
-                    let name = tessName
-                    console.error(`Found name: ${name}`);
+                    let {result, score} = bestLD(tessName, floor.rewards[itemNum]?.name??'');
+                    console.error(`Found item name: ${result} (was ${tessName}) score=${score}`);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
                     let item = floor.rewards[itemNum];
                     if (item === undefined) {
-                        item = { name, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence() };
+                        item = {name: result, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence() };
                         floor.rewards[itemNum] = item;
                     }
-                    item.possibleNames.set(name, (item.possibleNames.get(name)??0)+1);
+                    item.possibleNames.set(result, (item.possibleNames.get(result)??0)+1);
+                    let mostFound = 0;
+                    let iter = item.possibleNames.entries();
+                    while (true) {
+                        let entry = iter.next();
+                        if (entry.done) break;
+                        //console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
+                        if (entry.value[1] > mostFound) {
+                            mostFound = entry.value[1];
+                            result = entry.value[0];
+                        }
+                    }
+                    item.name = result;
 
                     //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
                     const xOffset = 1250;
@@ -504,29 +517,7 @@ function logMatInfo(mat, prefix='') {
             imageGS.delete();
         } else {
             sinceLastSelection++;
-            if (sinceLastSelection === 10) {
-                // output details of last level
-                let floor = tower.floors[lastFloorNum];
-                if (floor.type === 'MERCHANT') {
-                    console.log(`${lastFloorNum}\t\t`);
-                } else {
-                    let numRewards = (lastFloorNum === 0)?3:5;
-                    for (let i=0; i<numRewards; i++) {
-                        let mostFound = 0;
-                        let name = 'N/A';
-                        let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
-                        for (let n of Object.keys(reward.possibleNames.keys())) {
-                            let c = reward.possibleNames.get(n);
-                            if (c > mostFound) {
-                                mostFound = c;
-                                name = n;
-                            }
-                        }
-                        console.log(`${lastFloorNum}\t${name}\t${reward.enchantments.join('\t')}`);
-                    }
-                }
-            }
-
+            if (sinceLastSelection === 10) outputFloorRewards(lastFloorNum);
         }
 
         image.delete();
@@ -544,29 +535,29 @@ function logMatInfo(mat, prefix='') {
         //console.trace(cvTranslateError(cv, err));
     //}
 
-    let floor = tower.floors[lastFloorNum];
+    outputFloorRewards(lastFloorNum);
+    for (let i=0; i<=lastFloorNum; i++) {
+        outputFloorRewards(i);
+
+    }
+
+})();
+
+function outputFloorRewards(floorNum) {
+    let floor = tower.floors[floorNum];
+    if (!floor) return;
     if (floor.type === 'MERCHANT') {
-        console.log(`${lastFloorNum}\t\t`);
+        console.log(`${floorNum}\t\t`);
     } else {
-        let numRewards = (lastFloorNum === 0)?3:5;
+        let numRewards = (floorNum === 0)?3:5;
         for (let i=0; i<numRewards; i++) {
-            let mostFound = 0;
-            let name = 'N/A';
             let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
-            let iter = reward.possibleNames.entries();
-            while (true) {
-                let entry = iter.next();
-                if (entry.done) break;
-                console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
-                if (entry.value[1] > mostFound) {
-                    mostFound = entry.value[1];
-                    name = entry.value[0];
-                }
-            }
-            console.log(`${lastFloorNum}\t${name}\t${reward.enchantments.join('\t')}`);
+            let name = reward.name;
+            console.log(`${floorNum}\t${name}\t${reward.enchantments.join('\t')}`);
         }
     }
-})();
+
+}
 
 /*
 
@@ -942,6 +933,88 @@ const items: string[] = [
 'Fox Armor',
 ];
 
+const OCR_LOOKUP = {
+    'O0': 0.2,
+    '0O': 0.2,
+    'I1': 0.2,
+    '1I': 0.2,
+    'B8': 0.4,
+    '8B': 0.4,
+    'G6': 0.4,
+    '6G': 0.4,
+    'S5': 0.4,
+    '5S': 0.4,
+    'Z2': 0.5,
+    '2Z': 0.5,
+    'LI': 0.2,
+    'IL': 0.2,
+    'MN': 0.3,
+    'NM': 0.3,
+    'CG': 0.5,
+    'GC': 0.5,
+    'RP': 0.5,
+    'PR': 0.5,
+    'HN': 0.4,
+    'NH': 0.4,
+    'HA': 0.4,
+    'AH': 0.4,
+    'SC': 0.4,
+    'CS': 0.4,
+    'LG': 0.4,
+    'GL': 0.4,
+}
+
+function LevenshteinDistance(s: string, t: string, best: number): number {
+    let m = s.length;
+    let n = t.length;
+    let v0: number[] = Array.from({length: n+1}, (_, i) => i);
+    let v1: number[] = new Array(n+1);
+
+    for (let i=0; i<m; i++) {
+        // calculate v1 (current row distances) from the previous row v0
+        // first element of v1 is A[i+1][0]
+        //   edit distance is delete (i+1) chars from s to match empty t
+        v1[0] = i+1;
+
+        // use formula to fill in the rest of the row
+        for (let j=0; j<n; j++) {
+            // calculating costs for A[i+1][j+1]
+            let deletionCost = v0[j+1] + 1;
+            let insertionCost = v1[j] + 1;
+            let substitutionCost = (s[i] === t[j])?v0[j]:(v0[j]+(OCR_LOOKUP[s[i]+t[j]]??1));
+            v1[j+1] = Math.min(deletionCost, insertionCost, substitutionCost);
+        }
+        if (i > 0 && v1[n] >= best && v1[n] >= v0[n]) {
+            //console.log(`Rejecting ${t} because ${v0[n]} >= ${best} at ${i}`);
+            return Infinity;
+        }
+        v0 = [...v1];
+    }
+
+    return v0[n];
+}
+
+function bestLD(s: string, expected: string): {result: string, score: number} {
+    //console.log(`bestLD(${s})`);
+    //expected = 'Nautical Crossbow';
+    let score = LevenshteinDistance(s, expected.toUpperCase(), Infinity);
+    let result = expected;
+    for (let item of items.filter(item => item !== expected.toUpperCase())) {
+        let t = item.toUpperCase();
+        let sScore = LevenshteinDistance(s, t, score);
+        if (sScore === 0) {
+            result = item;
+            break;
+        }
+        if (sScore < score) {
+            score = sScore;
+            result = item;
+            console.log(`New best: ${item}, ${sScore}`);
+        }
+    }
+    return {result, score};
+}
+
 const enchantments: Enchantment[] = [
 {fn: 'Accelerate.png', name: 'Accelerate'},
 {fn: 'Acrobat.png', name: 'Acrobat'},
@@ -974,7 +1047,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Electrified.png', name: 'Electrified'},
 {fn: 'Emerald_Shield.png', name: 'Emerald Shield'},
 {fn: 'Enigma_Resonator.png', name: 'Enigma Resonator'},
-{fn: 'Environmental_Protection.png', name: 'Environmental Protection'},
+//{fn: 'Environmental_Protection.png', name: 'Environmental Protection'},
 {fn: 'Exploding.png', name: 'Exploding'},
 {fn: 'Explorer.png', name: 'Explorer'},
 {fn: 'Final_Shout.png', name: 'Final Shout'},
@@ -997,7 +1070,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Life_Boost.png', name: 'Life Boost'},
 {fn: 'LightningFocus_(MCD_Enchantment).png', name: 'Lightning Focus'},
 {fn: 'Looting.png', name: 'Looting'},
-{fn: 'Luck_of_the_Sea_(MCD_Enchantment).png', name: 'Luck of the Sea'},
+//{fn: 'Luck_of_the_Sea_(MCD_Enchantment).png', name: 'Luck of the Sea'},
 {fn: 'Lucky_ExplorerIcon.png', name: 'Lucky Explorer'},
 {fn: 'Multi-Charge_(MCD_Enchantment).png', name: 'Multi Charge'},
 {fn: 'Multi_Roll.png', name: 'Multi Roll'},
@@ -1037,7 +1110,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Stunning.png', name: 'Stunning'},
 {fn: 'Supercharge.png', name: 'Supercharge'},
 {fn: 'Surprise_Gift.png', name: 'Surprise Gift'},
-{fn: 'Swarm_Resistance.png', name: 'Swarm Resistance'},
+//{fn: 'Swarm_Resistance.png', name: 'Swarm Resistance'},
 {fn: 'Swiftfooted.png', name: 'Swiftfooted'},
 {fn: 'Tempo_Theft.png', name: 'Tempo Theft'},
 {fn: 'Thorns.png', name: 'Thorns'},
