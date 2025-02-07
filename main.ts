@@ -133,7 +133,7 @@ function logMatInfo(mat, prefix='') {
         //logMatInfo(e.image, 'Enchantment Template');
         //logMatInfo(e.mask, `Enchantment Mask`);
     };
-    console.error(`done! (${Math.round((Date.now()-now)/1000)}s)`);
+    console.log(`done! (${Math.round((Date.now()-now)/1000)}s)`);
 
     // item selection screen
     //const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [120, 50, 50, 0]); // lower green
@@ -152,14 +152,14 @@ function logMatInfo(mat, prefix='') {
         [1245, 928],
     ]
 
-    //for (let fn of globSync('videos/*.png').sort()
     //for await (let fn of globSync('videos/out000550.png').sort()) {
-    //for await (let fn of globSync('videos/*.png').sort()) {
-    for await (let fn of globSync('test/*.png').sort()) {
+    for await (let fn of globSync('videos/*.png').sort()) {
+    //for await (let fn of globSync('test/*.png').sort()) {
     //for await (let fn of ['out000547.png']) {
         //if (!fn.startsWith('test/out000557')) continue;
         //if (!fn.startsWith('test/out000567')) continue; // nautical crossbow
-        console.error(fn);
+        //if (!fn.startsWith('videos\\out00059')) continue;
+        console.log(fn);
         let found = false;
 
         // Read the input i/mage
@@ -274,7 +274,7 @@ function logMatInfo(mat, prefix='') {
             });
             text = text.replace('\n', ' ');
             //console.log(`Detected text: [${text}]`);
-            let match = text.match(/^(\d+)\/(\d+)\: (.*)$/);
+            let match = text.match(/^\s*(\d+)\s*\/\s*(\d+)\s*\:\s*(.*)$/);
             if (match) {
                 now = Date.now();
                 let nextFloorNum = match[1];
@@ -367,15 +367,15 @@ function logMatInfo(mat, prefix='') {
                 if (itemNum != undefined && itemNum < 5) {
                     // find item name
                     let {data: {text: line1}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 210, left: 1230, width: 670, height: 45}
+                        rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
                     let {data: {text: line2}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 260, left: 1230, width: 670, height: 45}
+                        rectangle: { top: 260, left: 1230, width: 600, height: 45}
                     });
                     let tessName = (`${line1}${line2}`).replace(/\n/g, ' ').trim();
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
                     let {result, score} = bestLD(tessName, floor.rewards[itemNum]?.name??'');
-                    console.error(`Found item name: ${result} (was ${tessName}) score=${score}`);
+                    console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
                     let item = floor.rewards[itemNum];
@@ -418,16 +418,6 @@ function logMatInfo(mat, prefix='') {
                         try {
                         cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCORR_NORMED, e.mask);
                         } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                        /*
-                        console.log(`[${e.name}] Score at 1240,709=${matchResult.floatAt(709-yOffset+buffer, 1240-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1241,709=${matchResult.floatAt(709-yOffset+buffer, 1241-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1240,710=${matchResult.floatAt(710-yOffset+buffer, 1240-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1241,710=${matchResult.floatAt(710-yOffset+buffer, 1241-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1341,710=${matchResult.floatAt(710-yOffset+buffer, 1341-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1441,710=${matchResult.floatAt(710-yOffset+buffer, 1441-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1541,710=${matchResult.floatAt(710-yOffset+buffer, 1541-xOffset+buffer)}`);
-                        console.log(`[${e.name}] Score at 1641,710=${matchResult.floatAt(710-yOffset+buffer, 1641-xOffset+buffer)}`);
-                        /*/
                         for (let y=0; y<matchResult.rows; y++) {
                             for (let x=0; x<matchResult.cols; x++) {
                                 const score = matchResult.floatAt(y, x);
@@ -450,7 +440,7 @@ function logMatInfo(mat, prefix='') {
                                     */
                                 
                                     if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
-                                        console.error(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
+                                        console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
                                     }
                                     if (score > item.confidence[slot]) {
                                         item.confidence[slot] = score;
@@ -508,7 +498,7 @@ function logMatInfo(mat, prefix='') {
                 contours.delete();
                 hierarchy.delete();
             } else {
-                console.error(`!!!${fn} UNMATCHED text: [${text}]`);
+                console.log(`!!!${fn} UNMATCHED text: [${text}]`);
             }
 
             // Clean up
