@@ -61,7 +61,27 @@ function logMatInfo(mat, prefix='') {
     console.error(`${prefix} (RxC)=(${mat.cols}x${mat.rows}), size=(${mat.size().width}*${mat.size().height}), depth=${mat.depth()}, channels=${mat.channels()}, type=${mat.type()}`);
 }
 
+function writeGrayscaleImage(img, fn: string) {
+    const imgRGBA = new Uint8Array(img.rows * img.cols * 4);
+
+    for (let i = 0; i < img.rows * img.cols; i++) {
+        const value = img.data[i]; // Grayscale value from the img
+        imgRGBA[i * 4] = value;    // Red channel
+        imgRGBA[i * 4 + 1] = value; // Green channel
+        imgRGBA[i * 4 + 2] = value; // Blue channel
+        imgRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
+    }
+    console.log(`Writing to ${fn}`);
+    new Jimp({width: img.cols, height: img.rows, data: Buffer.from(imgRGBA)}).write(fn);
+}
+
+function writeRGBAImage(img, fn: string) {
+    console.log(`Writing to ${fn}`);
+    new Jimp({width: img.cols, height: img.rows, data: Buffer.from(img.data)}).write(fn);
+}
+
 (async () => {
+    let colorRed = new cv.Scalar(255, 0, 0, 255);
     //try {
     const worker = await createWorker('eng');
     /*
@@ -146,12 +166,6 @@ function logMatInfo(mat, prefix='') {
     const itemHighlightH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
     let sinceLastSelection = 0;
     let lastFloorNum = 0;
-    let sampleLocations = [
-        [1245, 888],
-        [1285, 888],
-        [1285, 928],
-        [1245, 928],
-    ]
 
     //for await (let fn of globSync('videos/out000550.png').sort()) {
     for await (let fn of globSync('videos/*.png').sort()) {
@@ -162,47 +176,41 @@ function logMatInfo(mat, prefix='') {
         //if (!fn.startsWith('videos\\out00059')) continue;
         //if (!fn.startsWith('videos\\out000615')) continue;
         console.log(fn);
+        let debugImageFN = `debug/${fn.replace(/.*\//g, '').replace(/\.png/, '')}`;
+        console.log(`debugImageFN: ${debugImageFN}`);
         let found = false;
 
         // Read the input i/mage
+        now = Date.now();
         const jimpSrc = await Jimp.read(fn);
         const image = cv.matFromImageData(jimpSrc.bitmap);
-        let isSelectionScreen = true;
-        for (let [x,y] of sampleLocations) {
-            let pixelValue = image.ucharPtr(y, x);
-            if (pixelValue[0] < 45 || pixelValue[0] > 65 ||
-                pixelValue[1] < 120 || pixelValue[1] > 140 ||
-                pixelValue[2] < 60 || pixelValue[2] > 80) {
-                isSelectionScreen = false; // if the buttons don't match the basic green color, this can't be an item selection screen
+        const imageOutput = cv.matFromImageData(jimpSrc.bitmap);
+        let isSelectionScreen = false;
+
+        //logMatInfo(image, 'Base image');
+        const itemSelectImage = new cv.Mat();
+
+        // first, see if this is an item selection screen
+        let contours = new cv.MatVector();
+        let hierarchy = new cv.Mat();
+        cv.inRange(image, itemSelectionL, itemSelectionH, itemSelectImage);
+        cv.findContours(itemSelectImage, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+
+        for (let i=0; i<contours.size(); i++) {
+            const contour = contours.get(i);
+            const rect = cv.boundingRect(contour);
+            if (rect.x > 1200 && rect.width > 500 && rect.height > 100) {
+                //console.log(`Found item selection screen!`, rect);
+                isSelectionScreen = true;
                 break;
             }
         }
+        itemSelectImage.delete();
+        contours.delete();
+        hierarchy.delete();
 
         if (isSelectionScreen) {
-            //logMatInfo(image, 'Base image');
-            const itemSelectImage = new cv.Mat();
-
-            // first, see if this is an item selection screen
-            let contours = new cv.MatVector();
-            let hierarchy = new cv.Mat();
-            cv.inRange(image, itemSelectionL, itemSelectionH, itemSelectImage);
-            cv.findContours(itemSelectImage, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-            for (let i=0; i<contours.size(); i++) {
-                const contour = contours.get(i);
-                const rect = cv.boundingRect(contour);
-                if (rect.x > 1200 && rect.width > 500 && rect.height > 100) {
-                    //console.log(`Found item selection screen!`, rect);
-                    isSelectionScreen = true;
-                    break;
-                }
-            }
-            itemSelectImage.delete();
-            contours.delete();
-            hierarchy.delete();
-        }
-
-        if (isSelectionScreen) {
+            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
             // crop from contour image?
             let nextFloorX = 385;
@@ -271,10 +279,16 @@ function logMatInfo(mat, prefix='') {
                 console.log('Word Confidences:', wordConfidences);
             });
             */
+            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
             let {data: {text}} = await worker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
             text = text.replace('\n', ' ');
+            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area`); now = Date.now();
+
+            cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
+            cv.putText(imageOutput, `[${text}]`, new cv.Point(nextFloorX, nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+
             //console.log(`Detected text: [${text}]`);
             let match = text.match(/^\s*(\d+)\s*\/\s*(\d+)\s*\:\s*(.*)$/);
             if (match) {
@@ -283,6 +297,7 @@ function logMatInfo(mat, prefix='') {
                 let thisFloorNum = nextFloorNum-1;
                 let numLevels = match[2];
                 let nextLevelType = match[3];
+                let debugFN = `debug/${thisFloorNum}`;
 
                 if (tower.floors[nextFloorNum] === undefined) {
                     tower.floors[nextFloorNum] = { num: nextFloorNum, type: nextLevelType, rewards: []};
@@ -308,7 +323,6 @@ function logMatInfo(mat, prefix='') {
                 cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
                 cv.inRange(hsv, itemHighlightL, itemHighlightH, mask);
                 // Convert single-channel mask to RGBA for Jimp
-                //*
                 const imageRGBA = new Uint8Array(mask.rows * mask.cols * 4);
 
                 for (let i = 0; i < mask.rows * mask.cols; i++) {
@@ -319,6 +333,9 @@ function logMatInfo(mat, prefix='') {
                     imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                 }
                 const imageRGBAJimp = new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)});
+                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) create white mask jimp image`); now = Date.now();
+                writeGrayscaleImage(mask, `${debugFN}_mask.png`);
+                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote mask`); now = Date.now();
 
                 //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)}).write('mask.png');
                 //*/
@@ -345,38 +362,29 @@ function logMatInfo(mat, prefix='') {
                         let col = Math.round(Math.abs(rect.x - 678)/175);
                         let row = Math.round(Math.abs(rect.y - 178)/210);
                         itemNum = row*3 + col;
-                        /*
-                        cv.drawContours(image, contours, i, [255, 0, 0, 255], 4);
-                        new Jimp({width: image.cols, height: image.rows, data: Buffer.from(image.data)}).write('contours.png');
-                        */
+                        cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
+                        break;
                     }
-
-                    // Optionally, crop and process the region for OCR
-                    const cropped = image.roi(rect);
-                    const croppedImage = new cv.Mat();
-                    cv.cvtColor(cropped, croppedImage, cv.COLOR_BGR2GRAY);
-                    /*
-                    const buffer = Buffer.from(cv.imencode('.png', croppedImage).buffer);
-                    tesseract.recognize(buffer).then(({ data: { text } }) => {
-                        console.log(`Detected text: ${text}`);
-                    });
-                    */
-
-                    cropped.delete();
-                    croppedImage.delete();
                 }
+                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image`); now = Date.now();
 
                 if (itemNum != undefined && itemNum < 5) {
                     // find item name
                     let {data: {text: line1}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
+                    cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
+                    cv.putText(imageOutput, `[${line1}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                     let {data: {text: line2}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 260, left: 1230, width: 600, height: 45}
                     });
+                    cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
+                    cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+
                     let tessName = (`${line1}${line2}`).replace(/\n/g, ' ').trim();
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
                     let {result, score} = bestLD(tessName, floor.rewards[itemNum]?.name??'');
+                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
                     console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
@@ -398,11 +406,12 @@ function logMatInfo(mat, prefix='') {
                         }
                     }
                     item.name = result;
+                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
 
                     //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
                     const xOffset = 1250;
                     const yOffset = 700;
-                    const buffer = 100;
+                    const buffer = 50;
                     const roi = image.roi(new cv.Rect(xOffset-buffer, yOffset-buffer, 520+2*buffer, 135+2*buffer));
                     //logMatInfo(roi, 'roi');
                     /*
@@ -411,6 +420,7 @@ function logMatInfo(mat, prefix='') {
                     new Jimp({width: roiBGR.cols, height: roiBGR.rows, data: Buffer.from(roiBGR.data)}).write('roi.png');
                     */
 
+                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
                     let rectArr: any[][] = []; 
                     enchantments.forEach((e, ind) => {
                         //process.stdout.clearLine(1);
@@ -435,11 +445,9 @@ function logMatInfo(mat, prefix='') {
                                     if (row === 1) slot += 1;
                                     else slot += col*2;
                                     //console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
-                                    /*
                                     let pointA = new cv.Point(xReal, yReal);
                                     let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
-                                    rectArr.push([pointA, pointB]);
-                                    */
+                                    rectArr.push([pointA, pointB, e.name]);
                                 
                                     if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
                                         console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
@@ -456,8 +464,20 @@ function logMatInfo(mat, prefix='') {
                         // Clean up
                         matchResult.delete();
                     });
-                    //let color = new cv.Scalar(0, 255, 0, 255);
-                    //rectArr.forEach(r => cv.rectangle(image, r[0], r[1], color, 2, cv.LINE_8, 0));
+                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) match enchantment icons`); now = Date.now();
+                    rectArr.forEach(r => {
+                        let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
+                        cv.putText(textImage, `[${r[2]}]`, new cv.Point(r[0].x, r[0].y), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                        let pt = r[0];
+                        let rot = cv.getRotationMatrix2D(pt, 45, 1.0);
+                        cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
+                        try {
+                        cv.add(imageOutput, textImage, imageOutput);
+                        } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                        cv.rectangle(imageOutput, r[0], r[1], colorRed, 2, cv.LINE_8, 0)
+                    });
+                    writeRGBAImage(imageOutput, `${debugImageFN}.png`);
+
                     //process.stdout.clearLine(1);
                     //console.log(`Finished scanning for enchantments! (${Math.trunc(Date.now()-now)/1000}s)`);
 
@@ -517,6 +537,7 @@ function logMatInfo(mat, prefix='') {
         }
 
         image.delete();
+        imageOutput.delete();
 
         if (found) break;
     };
