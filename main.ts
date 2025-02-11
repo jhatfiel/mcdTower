@@ -1,4 +1,5 @@
 const { cv, cvTranslateError } = require('opencv-wasm');
+const fs = require('fs');
 
 const {Jimp, ResizeStrategy} = require('jimp');
 const {glob, globSync} = require('glob');
@@ -159,6 +160,7 @@ function logMatInfo(mat, prefix='') {
         //if (!fn.startsWith('test/out000557')) continue;
         //if (!fn.startsWith('test/out000567')) continue; // nautical crossbow
         //if (!fn.startsWith('videos\\out00059')) continue;
+        //if (!fn.startsWith('videos\\out000615')) continue;
         console.log(fn);
         let found = false;
 
@@ -171,7 +173,7 @@ function logMatInfo(mat, prefix='') {
             if (pixelValue[0] < 45 || pixelValue[0] > 65 ||
                 pixelValue[1] < 120 || pixelValue[1] > 140 ||
                 pixelValue[2] < 60 || pixelValue[2] > 80) {
-                isSelectionScreen = false;
+                isSelectionScreen = false; // if the buttons don't match the basic green color, this can't be an item selection screen
                 break;
             }
         }
@@ -318,7 +320,7 @@ function logMatInfo(mat, prefix='') {
                 }
                 const imageRGBAJimp = new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)});
 
-                //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(rgbaMask)}).write('mask.png');
+                //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)}).write('mask.png');
                 //*/
 
                 // Find contours
@@ -454,7 +456,7 @@ function logMatInfo(mat, prefix='') {
                         // Clean up
                         matchResult.delete();
                     });
-                    let color = new cv.Scalar(0, 255, 0, 255);
+                    //let color = new cv.Scalar(0, 255, 0, 255);
                     //rectArr.forEach(r => cv.rectangle(image, r[0], r[1], color, 2, cv.LINE_8, 0));
                     //process.stdout.clearLine(1);
                     //console.log(`Finished scanning for enchantments! (${Math.trunc(Date.now()-now)/1000}s)`);
@@ -508,6 +510,10 @@ function logMatInfo(mat, prefix='') {
         } else {
             sinceLastSelection++;
             if (sinceLastSelection === 10) outputFloorRewards(lastFloorNum);
+            if (sinceLastSelection > 10) {
+                // we could delete these image files once we are correctly finding all item selection screens
+                fs.unlinkSync(fn);
+            }
         }
 
         image.delete();
@@ -668,7 +674,6 @@ const items: string[] = [
 'Mechanized Sawblade',
 'Claymore',
 'Broadsword',
-'Frost Slayer',
 'Great Axeblade',
 'Heartstealer',
 'Coral Blade',
@@ -676,7 +681,6 @@ const items: string[] = [
 'Cutlass',
 'Dancer\'s Sword',
 'Nameless Blade',
-'Sparkler',
 'Daggers',
 'Fangs of Frost',
 'Moon Daggers',
@@ -690,11 +694,9 @@ const items: string[] = [
 'Soul Fists',
 'Bow',
 'Bonebow',
-'Haunted Bow',
 'Twin Bow',
 'Bubble Bow',
 'Bubble Burster',
-'Gloopy Bow',
 'Burst Crossbow',
 'Corrupted Crossbow',
 'Soul Hunter Crossbow',
@@ -723,7 +725,6 @@ const items: string[] = [
 'Red Snake',
 'Power Bow',
 'Elite Power Bow',
-'Phantom Bow',
 'Sabrewing',
 'Battle Robe',
 'Splendid Robe',
@@ -745,17 +746,13 @@ const items: string[] = [
 'Ember Robe',
 'Verdant Robe',
 'Ghostly Armor',
-'Cloaked Skull',
 'Ghost Kindler',
 'Grim Armor',
-'The Spooky Gourdian',
 'Wither Armor',
 'Guard\'s Armor',
 'Hunter\'s Armor',
 'Archer\'s Armor',
 'Mercenary Armor',
-'Hungriest Horror',
-'Hungry Horror',
 'Renegade Armor',
 'Mystery Armor',
 'Blast Fungus',
@@ -804,11 +801,9 @@ const items: string[] = [
 'Wind Horn',
 'Wonderful Wheat',
 'Glaive',
-'Cackling Broom',
 'Grave Bane',
 'Venom Glaive',
 'Great Hammer',
-'Bonehead Hammer',
 'Hammer of Gravity',
 'Stormlander',
 'Katana',
@@ -833,10 +828,8 @@ const items: string[] = [
 'Soul Scythe',
 'Frost Scythe',
 'Jailor\'s Scythe',
-'Skull Scythe',
 'Spear',
 'Fortune Spear',
-'Spine-Chill Spear',
 'Whispering Spear',
 'Rapid Crossbow',
 'Auto Crossbow',
@@ -845,26 +838,22 @@ const items: string[] = [
 'Harp Crossbow',
 'Lighting Harb Crossbow',
 'Shadow Crossbow',
-'Shrieking Crossbow',
 'Veiled Crossbow',
 'Shortbow',
 'Love Spell Bow',
 'Mechanical Shortbow',
 'Purple Storm',
 'Snow Bow',
-'Webbed Bow',
 'Winter\'s Touch',
 'Soul Bow',
 'Bow of Lost Souls',
 'Nocturnal Bow',
-'Shivering Bow',
 'Soul Crossbow',
 'Feral Soul Crossbow',
 'Voidcaller',
 'Trickbow',
 'The Green Menace',
 'The Pink Scoundrel',
-'Sugar Rush',
 'Twisting Vine Bow',
 'Weeping Vine Bow',
 'Void Bow',
@@ -879,7 +868,6 @@ const items: string[] = [
 'Piglin Armor',
 'Golden Piglin Armor',
 'Plate Armor',
-'Cauldron Armor',
 'Full Metal Armor',
 'Reinforced Mail',
 'Stalwart Armor',
@@ -895,7 +883,6 @@ const items: string[] = [
 'Souldancer Robe',
 'Spelunker Armor',
 'Cave Crawler',
-'Sweet Tooth',
 'Sprout Armor',
 'Living Vines Armor',
 'Squid Armor',
@@ -907,7 +894,6 @@ const items: string[] = [
 'Sword',
 'Diamond Sword',
 'Hawkbrand',
-'Sinister Sword',
 'Tempest Knife',
 'Chill Gale Knife',
 'Resolute Tempest Knife',
@@ -918,7 +904,6 @@ const items: string[] = [
 'Turtle Armor',
 'Nimble Turtle Armor',
 'Wolf Armor',
-'Artic Fox Armor',
 'Black Wolf Armor',
 'Fox Armor',
 ];
