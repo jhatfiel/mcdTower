@@ -5,7 +5,6 @@ const {Jimp, ResizeStrategy} = require('jimp');
 const {glob, globSync} = require('glob');
 const { createWorker } = require('tesseract.js');
 const Tesseract = require('tesseract.js');
-//import { createWorker } from 'tesseract.js'
 
 const WIDTH = 1920;
 const HEIGHT = 1080;
@@ -83,15 +82,8 @@ function writeRGBAImage(img, fn: string) {
 (async () => {
     let colorRed = new cv.Scalar(255, 0, 0, 255);
     let colorGreen = new cv.Scalar(0, 255, 0, 255);
-    //try {
     const levelWorker = await createWorker('eng');
     const nameWorker = await createWorker('eng');
-    /*
-    await worker.setParameters({
-        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
-        tessedit_char_whitelist: '/0123456789: COMBATMERCHANTBOSS',
-    });
-    */
     await levelWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: '/0123456789:',
@@ -101,29 +93,6 @@ function writeRGBAImage(img, fn: string) {
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
-    //const slashSrc = await Jimp.read('./images/slash.png');
-    //const slashImage = cv.matFromImageData(slashSrc.bitmap);
-    /*
-    const enchantmentSrc = (await Jimp.read('./images/Life_Boost.png')).resize({w:92, h:92, mode: ResizeStrategy.HERMITE});
-    const enchantmentImage = cv.matFromImageData(enchantmentSrc.bitmap);
-    // Split the channels of the template
-    const enchantmentRGBA = new cv.MatVector();
-    cv.split(enchantmentImage, enchantmentRGBA);
-    const enchantmentAlpha = enchantmentRGBA.get(3);
-    let enchantmentBinaryMask = new cv.Mat();
-    let enchantmentMask = new cv.Mat(enchantmentBinaryMask.rows, enchantmentBinaryMask.cols, cv.CV_8UC4);
-    cv.threshold(enchantmentAlpha, enchantmentBinaryMask, 128, 255, cv.THRESH_BINARY);
-    //new Jimp({width: enchantmentMask.cols, height: enchantmentMask.rows, data: Buffer.from(enchantmentMask.data)}).write('enchantmentMask.png');
-    const encRGBA = enchantmentMask.data; //new Uint8Array(enchantmentMask.rows * enchantmentMask.cols * 4);
-    for (let i = 0; i < enchantmentMask.rows * enchantmentMask.cols; i++) {
-        const value = enchantmentMask.data[i]; // Grayscale value from the mask
-        encRGBA[i * 4] = value;    // Red channel
-        encRGBA[i * 4 + 1] = value; // Green channel
-        encRGBA[i * 4 + 2] = value; // Blue channel
-        encRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
-    }
-    new Jimp({width: enchantmentMask.cols, height: enchantmentMask.rows, data: Buffer.from(encRGBA)}).write('enchantmentMask.png');
-    */
 
     let now = Date.now();
     process.stderr.write(`Loading ${enchantments.length} enchantment images....`);
@@ -145,27 +114,10 @@ function writeRGBAImage(img, fn: string) {
         rgba.push_back(new cv.Mat.zeros(e.mask.rows, e.mask.cols, cv.CV_8U));
 
         cv.merge(rgba, e.mask);
-
-        /*
-        const data = new Uint8Array(e.mask.rows*e.mask.cols*4);
-        for (let i=0; i<e.mask.rows*e.mask.cols; i++) {
-            const value = e.mask.data[i];
-            data[i*4] = value;
-            data[i*4+1] = value;
-            data[i*4+2] = value;
-            data[i*4+3] = 255;
-        }
-        new Jimp({width: e.mask.cols, height: e.mask.rows, data: Buffer.from(data)}).write('enchantmentMask.png');
-        */
-        // the mask should have a CV_8U or CV_32F depth and the same number of channels as the template image
-        //logMatInfo(e.image, 'Enchantment Template');
-        //logMatInfo(e.mask, `Enchantment Mask`);
     };
     console.log(`done! (${Math.round((Date.now()-now)/1000)}s)`);
 
     // item selection screen
-    //const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [120, 50, 50, 0]); // lower green
-    //const itemSelectionH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [140, 70, 60, 0]); // upper green
     const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, RGB_MAT_TYPE, [50, 120, 60, 0]); // lower green
     const itemSelectionH = new cv.Mat(HEIGHT, WIDTH, RGB_MAT_TYPE, [60, 140, 70, 255]); // upper green
     // item highlight
@@ -175,29 +127,20 @@ function writeRGBAImage(img, fn: string) {
     let lastFloorNum = 0;
     let totalLevels = 0;
 
-    //for await (let fn of globSync('videos/out000550.png').sort()) {
     for await (let fn of globSync('videos/*.png').sort()) {
-    //for await (let fn of globSync('test/*.png').sort()) {
-    //for await (let fn of ['out000547.png']) {
-        //if (!fn.startsWith('test/out000557')) continue;
-        //if (!fn.startsWith('test/out000567')) continue; // nautical crossbow
-        //if (!fn.startsWith('videos\\out00059')) continue;
-        //if (!fn.startsWith('videos\\out000615')) continue;
-        //if (!['000532', '000537'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
         //if (!['004456'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
 
         console.log(`${fn} ${'-'.repeat(80)}`);
         let debugImageFN = `debug/${fn.replace(/.*[\/\\]/g, '').replace(/\.png/, '')}`;
         let found = false;
 
-        // Read the input i/mage
+        // Read the input image
         now = Date.now();
         const jimpSrc = await Jimp.read(fn);
         const image = cv.matFromImageData(jimpSrc.bitmap);
         const imageOutput = cv.matFromImageData(jimpSrc.bitmap);
         let isSelectionScreen = false;
 
-        //logMatInfo(image, 'Base image');
         const itemSelectImage = new cv.Mat();
 
         // first, see if this is an item selection screen
@@ -222,7 +165,8 @@ function writeRGBAImage(img, fn: string) {
         if (isSelectionScreen) {
             console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
-            // crop from contour image?
+
+            // crop from contour image
             let nextFloorX = 375;
             let nextFloorY = 70;
             let nextFloorWidth = 125;
@@ -241,54 +185,6 @@ function writeRGBAImage(img, fn: string) {
             }
             let imageGSJimp = new Jimp({width: imageGS.cols, height: imageGS.rows, data: Buffer.from(imageRGBA)});
 
-            //let nextFloor = image.roi({x: nextFloorX, y: nextFloorY, width: nextFloorWidth, height: nextFloorHeight});
-            //let matchResult = new cv.Mat();
-            //cv.matchTemplate(slashImage, nextFloor, matchResult, cv.TM_SQDIFF_NORMED);
-            //const widthToSlash = cv.minMaxLoc(matchResult).minLoc.x;
-            // resize it to end at the slash
-            //nextFloor = image.roi({x: nextFloorX, y: nextFloorY, width: widthToSlash, height: nextFloorHeight});
-            //const nextFloorGS = new cv.Mat();
-            //cv.cvtColor(nextFloor, nextFloorGS, cv.COLOR_BGR2GRAY);
-            //cv.threshold(nextFloorGS, nextFloorGS, 128, 255, cv.THRESH_BINARY);
-
-            // or just use original jimp image?
-            /*
-            const nextFloorJimp = jimpSrc.crop({x: nextFloorX, y: nextFloorY, w: nextFloorWidth, h: nextFloorHeight});
-            /*/
-            //*
-            /*
-            const nextFloorRGBA = new Uint8Array(nextFloorGS.rows * nextFloorGS.cols * 4);
-
-            for (let i = 0; i < nextFloorGS.rows * nextFloorGS.cols; i++) {
-                const value = nextFloorGS.data[i]; // Grayscale value from the mask
-                nextFloorRGBA[i * 4] = value;    // Red channel
-                nextFloorRGBA[i * 4 + 1] = value; // Green channel
-                nextFloorRGBA[i * 4 + 2] = value; // Blue channel
-                nextFloorRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
-            }
-
-            let nextFloorJimp = new Jimp({width: nextFloorGS.cols, height: nextFloorGS.rows, data: Buffer.from(nextFloorRGBA)})
-            */
-            //let nextFloorJimp = jimpSrc.crop({x: nextFloorX, y: nextFloorY, w: nextFloorWidth, h: nextFloorHeight});
-            //nextFloorJimp.write('level.png');
-            /*
-            const nextFloorJimp = new Jimp({
-                width: 500,
-                height: 35,
-                data: Buffer.from(nextFloorGS.data),
-            });
-            */
-            //nextFloorJimp.write('level.png');
-            // */
-        
-            //const pngBuffer = await nextFloorJimp.getBuffer("image/png");
-
-            /*
-            let {data: {text}} = await worker.recognize(pngBuffer).then(({ data: {words}}) => {
-                const wordConfidences = words.map(word => word.confidence);
-                console.log('Word Confidences:', wordConfidences);
-            });
-            */
             console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
             let {data: {text}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
@@ -331,7 +227,6 @@ function writeRGBAImage(img, fn: string) {
                 }
 
                 //console.log(`Found floor: ${nextFloor-1}`);
-                //found = true;
 
                 // now, figure out which item is highlighted
                 const hsv = new cv.Mat();
@@ -353,25 +248,14 @@ function writeRGBAImage(img, fn: string) {
                     imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                 }
                 const imageRGBAJimp = new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)});
-                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) create white mask jimp image`); now = Date.now();
                 writeGrayscaleImage(mask, `${debugFN}_mask.png`);
                 console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote mask`); now = Date.now();
 
                 //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)}).write('mask.png');
-                //*/
 
                 // Find contours
                 cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                /*
-                contours = contours.filter(c => cv.contourArea(contour) > 10000)
-                for (let c of contours) {
-                    contoursFilt
-                }
-                cv.drawContours(image, contours, -1, [0, 255, 0], 2);
-                */
-
-                // Process contours
-                // TODO: set itemNum based on where the bounding box above was found
+                // set itemNum based on where the bounding box above was found
                 let itemNum: number = undefined;
 
                 for (let i = 0; i < contours.size(); i++) {
@@ -386,22 +270,21 @@ function writeRGBAImage(img, fn: string) {
                         break;
                     }
                 }
-                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image`); now = Date.now();
+                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
 
                 if (itemNum != undefined && itemNum < 5) {
                     // find item name
-                    let {data: {text: line1}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                    let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
                     cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
-                    cv.putText(imageOutput, `[${line1}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                    cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                     // see if we need the second line
                     let countWhite = 0;
                     for (let offset=0; offset<30; offset++) {
                         let pixelValue = image.ucharPtr(265, 1230+offset);
                         if (pixelValue[0] > 128) countWhite++;
                     }
-                    let tessName = line1;
                     if (countWhite) {
                         cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
                         let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
@@ -445,22 +328,13 @@ function writeRGBAImage(img, fn: string) {
                     const yOffset = 700;
                     const buffer = 50;
                     const roi = image.roi(new cv.Rect(xOffset-buffer, yOffset-buffer, 520+2*buffer, 135+2*buffer));
-                    //logMatInfo(roi, 'roi');
-                    /*
-                    const roiBGR = new cv.Mat();
-                    cv.cvtColor(roi, roiBGR, cv.COLOR_BGR2BGRA);
-                    new Jimp({width: roiBGR.cols, height: roiBGR.rows, data: Buffer.from(roiBGR.data)}).write('roi.png');
-                    */
 
                     console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
                     let totalMTTime = 0;
                     let totalScanTime = 0;
                     let rectArr: any[][] = []; 
-                    enchantments.forEach((e, ind) => {
-                        //process.stdout.clearLine(1);
-                        //process.stdout.write(`${(ind+1).toString().padStart(3)}/${enchantments.length} Searching for enchantment: ${e.name}\r`);
+                    enchantments.forEach(e => {
                         let matchResult = new cv.Mat();
-                        //console.log(`Trying matchTemplate`);
                         let n = Date.now();
                         try {
                         cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCORR_NORMED, e.mask);
@@ -498,7 +372,6 @@ function writeRGBAImage(img, fn: string) {
                             }
                         }
                         totalScanTime += Date.now()-n;
-                        //*/
                         
                         // Clean up
                         matchResult.delete();
@@ -525,38 +398,6 @@ function writeRGBAImage(img, fn: string) {
                     writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                     writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
-                    //process.stdout.clearLine(1);
-                    //console.log(`Finished scanning for enchantments! (${Math.trunc(Date.now()-now)/1000}s)`);
-
-                    //console.log(`${thisFloorNum} | ${item.name} | ${item.enchantments.join(' | ')}`);
-
-                    /*
-                    cv.threshold(matchResult, matchResult, 0.60, 1, cv.THRESH_BINARY);
-                    matchResult.convertTo(matchResult, cv.CV_8UC1);
-                    let contours2 = new cv.MatVector();
-                    let hierarchy2 = new cv.Mat();
-            
-                    cv.findContours(matchResult, contours2, hierarchy2, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                    for (let i = 0; i < contours2.size(); ++i) {
-                        let countour = contours2.get(i).data32S;
-                        let x = countour[0];
-                        let y = countour[1];
-                        
-                        let color = new cv.Scalar(0, 255, 0, 255);
-                        let pointA = new cv.Point(x, y);
-                        let pointB = new cv.Point(x + enchantmentImage.cols, y + enchantmentImage.rows);
-                        cv.rectangle(image, pointA, pointB, color, 2, cv.LINE_8, 0);
-                        console.log(`FOUND ENCHANTMENT MATCH! ${x},${y}`);
-                    }
-                    */
-
-                    /*
-                    const minMaxLoc = cv.minMaxLoc(matchResult);
-                    console.log(JSON.stringify(minMaxLoc));
-                    cv.rectangle(image, new cv.Point(minMaxLoc.maxLoc.x, minMaxLoc.maxLoc.y), new cv.Point(minMaxLoc.maxLoc.x+foodReservesImage.width, minMaxLoc.maxLoc.y+foodReservesImage.height), new cv.Scalar(0,0,255,255),2);
-                    */
-                    //new Jimp({width: image.cols, height: image.rows, data: Buffer.from(image.data)}).write('enchantment.png');
-
                     // Clean up
                     roi.delete();
                 }
@@ -572,8 +413,6 @@ function writeRGBAImage(img, fn: string) {
             }
 
             // Clean up
-            //nextFloorGS.delete();
-            //nextFloor.delete();
             imageGS.delete();
         } else {
             sinceLastSelection++;
@@ -598,9 +437,6 @@ function writeRGBAImage(img, fn: string) {
 
     await levelWorker.terminate();
     await nameWorker.terminate();
-    //} catch (err) {
-        //console.trace(cvTranslateError(cv, err));
-    //}
 
     for (let i=0; i<=totalLevels; i++) {
         outputFloorRewards(i);
@@ -623,108 +459,6 @@ function outputFloorRewards(floorNum) {
     }
 
 }
-
-/*
-
-const CV = require('./opencv.js');
-const JIMP = require('jimp');
-const Jimp = JIMP.Jimp;
-const tesseract = require('tesseract.js');
-(async () => {
-    const cv = await CV;
-    console.log(cv.getBuildInformation());
-    var jimpSrc = await Jimp.read('frame_0001.png');
-    var image = cv.matFromImageData(jimpSrc.bitmap);
-    let dst = new cv.Mat();
-
-    const hsv = cv.cvtColor(image, dst, cv.COLOR_BGR2HSV);
-    const lowerBound = new cv.Mat();
-    const upperBound = new cv.Mat();
-
-    const mask = hsv.inRange(lowerBound, upperBound);
-    const contours = mask.findContours(cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    contours.forEach(contour => {
-        const rect = contour.boundingRect();
-        console.log(rect);
-        //const cropped = image.getRegion(rect);
-        //extractText(cropped); // OCR
-    });
-    //let dst = new cv.Mat();
-    //let M = cv.Mat.ones(5, 5, cv.CV_8U);
-
-    //const buffer = cv.imencode('.png', croppedImage).toString('base64');
-    //tesseract.recognize(Buffer.from(buffer, 'base64'))
-        //.then(({ data: { text } }) => console.log(`Detected item: ${text}`));
-    //cv.dilate(src, dst, M, anchor, 1, cv.BORDER_CONSTANT, cv.morphologyDefaultBorderValue());
-    //new Jimp({width: dst.cols, height: dst.rows, data: Buffer.from(dst.data)}).write('output.png');
-    image.delete();
-    //dst.delete();
-})();
-*/
-
-/*
-(async () => {
-    const resolvedCv = await cv;
-    console.log(resolvedCv.getVuildInformation());
-  })();
-
-  */
-/*
-const ffmpeg = require('fluent-ffmpeg');
-const cv = require('opencv4nodejs');
-const tesseract = require('tesseract.js');
-const fs = require('fs');
-
-// 1. Extract frames
-function extractFrames(videoPath, outputDir, timestamps) {
-    timestamps.forEach((timestamp, index) => {
-        ffmpeg(videoPath)
-            .setStartTime(timestamp)
-            .frames(1)
-            .output(`${outputDir}/frame_${index}.png`)
-            .on('end', () => console.log(`Extracted frame at ${timestamp}`))
-            .run();
-    });
-}
-
-// 2. Analyze frames for colored borders
-function analyzeFrame(framePath) {
-    const image = cv.imread(framePath);
-    const hsv = image.cvtColor(cv.COLOR_BGR2HSV);
-    const lowerBound = new cv.Vec3(0, 100, 100); // Example for red borders
-    const upperBound = new cv.Vec3(10, 255, 255);
-
-    const mask = hsv.inRange(lowerBound, upperBound);
-    const contours = mask.findContours(cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-
-    contours.forEach(contour => {
-        const rect = contour.boundingRect();
-        const cropped = image.getRegion(rect);
-        extractText(cropped); // OCR
-    });
-}
-
-// 3. Extract text from items
-function extractText(croppedImage) {
-    const buffer = cv.imencode('.png', croppedImage).toString('base64');
-    tesseract.recognize(Buffer.from(buffer, 'base64'))
-        .then(({ data: { text } }) => console.log(`Detected item: ${text}`));
-}
-
-// Main program
-const videoPath = '../tools/Tower105.mp4';
-const outputDir = 'frames';
-const timestamps = ['00:01:30', '00:05:00']; // Example timestamps
-
-extractFrames(videoPath, outputDir, timestamps);
-
-// Analyze each frame after extraction
-/*
-fs.readdirSync(outputDir).forEach(file => {
-    analyzeFrame(`${outputDir}/${file}`);
-});
-*/
 
 const items: string[] = [
 'Anchor',
@@ -977,7 +711,7 @@ const items: string[] = [
 'Fox Armor',
 ];
 
-const OCR_LOOKUP = {
+const OCR_TRANSPOSE = {
     'O0': 0.2,
     '0O': 0.2,
     'I1': 0.2,
@@ -1029,7 +763,7 @@ function LevenshteinDistance(s: string, t: string, best: number): number {
             // calculating costs for A[i+1][j+1]
             let deletionCost = v0[j+1] + 1;
             let insertionCost = v1[j] + 1;
-            let substitutionCost = (s[i] === t[j])?v0[j]:(v0[j]+(OCR_LOOKUP[s[i]+t[j]]??1));
+            let substitutionCost = (s[i] === t[j])?v0[j]:(v0[j]+(OCR_TRANSPOSE[s[i]+t[j]]??1));
             v1[j+1] = Math.min(deletionCost, insertionCost, substitutionCost);
         }
         if (i > 0 && v1[n] >= best && v1[n] >= v0[n]) {
@@ -1047,8 +781,6 @@ function bestLDItem(s: string, expected: string): {result: string, score: number
 }
 
 function bestLDArray(s: string, expected: string, arr: string[]): {result: string, score: number} {
-    //console.log(`bestLD(${s})`);
-    //expected = 'Nautical Crossbow';
     let score = LevenshteinDistance(s, expected.toUpperCase(), Infinity);
     let result = expected;
     for (let item of arr.filter(item => item !== expected.toUpperCase())) {
@@ -1177,5 +909,3 @@ const enchantments: Enchantment[] = [
 {fn: 'Wild_Rage.png', name: 'Wild Rage'},
 {fn: 'Weakening.png', name: 'Weakening'},
 ];
-//].filter(e => ['Pain Cycle', 'Food Reserves', 'Life Boost', 'Shadow Blast', 'Shadow Surge', 'Cooldown'].indexOf(e.name) !== -1);
-//].filter(e => ['Food Reserves', 'Pain Cycle'].indexOf(e.name) !== -1);
