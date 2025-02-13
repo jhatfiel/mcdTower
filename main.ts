@@ -127,7 +127,7 @@ function writeRGBAImage(img, fn: string) {
     let lastFloorNum = 0;
     let totalLevels = 0;
 
-    for await (let fn of globSync('videos/*.png').sort()) {
+    for await (let fn of globSync('test/*.png').sort()) {
         //if (!['004456'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
 
         console.log(`${fn} ${'-'.repeat(80)}`);
@@ -167,7 +167,7 @@ function writeRGBAImage(img, fn: string) {
             sinceLastSelection = 0;
 
             // crop from contour image
-            let nextFloorX = 375;
+            let nextFloorX = 380;
             let nextFloorY = 70;
             let nextFloorWidth = 125;
             let nextFloorHeight = 45;
@@ -355,7 +355,7 @@ function writeRGBAImage(img, fn: string) {
                                     col = Math.round(Math.abs(col)/88);
                                     if (row === 1) slot += 1;
                                     else slot += col*2;
-                                    //console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
+                                    console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
                                     let pointA = new cv.Point(xReal, yReal);
                                     let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
                                     rectArr.push([pointA, pointB, e.name, slot, score]);
@@ -395,6 +395,23 @@ function writeRGBAImage(img, fn: string) {
                         textImage.delete();
                         rot.delete();
                     });
+
+                    /* Check directly at locations and do a short circuiting mean-squared-error for each enchantment image at that particular location
+1241,709
+1285,751
+1329,709
+1426,709
+1470,751
+1514,709
+1611,709
+1655,751
+1699,709
+                    once we find an enchantment that is good, we record that value and the MSE.  For all future checks, once the MSE has gone over that "good" value
+                    the we know this can't be the right enchantment icon.
+
+                    Additionally, we can set a maximum MSE that indicates that if we don't find an enchantment by that point, this slot must be empty.
+                    */
+
                     writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                     writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
