@@ -82,15 +82,22 @@ function writeRGBAImage(img, fn: string) {
 
 (async () => {
     let colorRed = new cv.Scalar(255, 0, 0, 255);
+    let colorGreen = new cv.Scalar(0, 255, 0, 255);
     //try {
-    const worker = await createWorker('eng');
+    const levelWorker = await createWorker('eng');
+    const nameWorker = await createWorker('eng');
     /*
     await worker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: '/0123456789: COMBATMERCHANTBOSS',
     });
     */
-    await worker.setParameters({
+    await levelWorker.setParameters({
+        tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
+        tessedit_char_whitelist: '/0123456789:',
+        debug_file: '/dev/null',  // Assigning a debug file disables the console output
+    });
+    await nameWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
@@ -166,6 +173,7 @@ function writeRGBAImage(img, fn: string) {
     const itemHighlightH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
     let sinceLastSelection = 0;
     let lastFloorNum = 0;
+    let totalLevels = 0;
 
     //for await (let fn of globSync('videos/out000550.png').sort()) {
     for await (let fn of globSync('videos/*.png').sort()) {
@@ -175,9 +183,11 @@ function writeRGBAImage(img, fn: string) {
         //if (!fn.startsWith('test/out000567')) continue; // nautical crossbow
         //if (!fn.startsWith('videos\\out00059')) continue;
         //if (!fn.startsWith('videos\\out000615')) continue;
-        console.log(fn);
-        let debugImageFN = `debug/${fn.replace(/.*\//g, '').replace(/\.png/, '')}`;
-        console.log(`debugImageFN: ${debugImageFN}`);
+        //if (!['000532', '000537'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
+        //if (!['004456'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
+
+        console.log(`${fn} ${'-'.repeat(80)}`);
+        let debugImageFN = `debug/${fn.replace(/.*[\/\\]/g, '').replace(/\.png/, '')}`;
         let found = false;
 
         // Read the input i/mage
@@ -213,10 +223,10 @@ function writeRGBAImage(img, fn: string) {
             console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
             // crop from contour image?
-            let nextFloorX = 385;
-            let nextFloorY = 75;
-            let nextFloorWidth = 400;
-            let nextFloorHeight = 35;
+            let nextFloorX = 375;
+            let nextFloorY = 70;
+            let nextFloorWidth = 125;
+            let nextFloorHeight = 45;
 
             let imageGS = new cv.Mat();
             cv.cvtColor(image, imageGS, cv.COLOR_BGRA2GRAY);
@@ -280,24 +290,34 @@ function writeRGBAImage(img, fn: string) {
             });
             */
             console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
-            let {data: {text}} = await worker.recognize(await imageGSJimp.getBuffer("image/png"), {
+            let {data: {text}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
-            text = text.replace('\n', ' ');
-            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area`); now = Date.now();
+            text = text.trim().replace(/[\\n\\r]/, '');
+            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
             cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
             cv.putText(imageOutput, `[${text}]`, new cv.Point(nextFloorX, nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
             //console.log(`Detected text: [${text}]`);
-            let match = text.match(/^\s*(\d+)\s*\/\s*(\d+)\s*\:\s*(.*)$/);
+            text = text.replace(/ /g, '').replace(/:.*$/, '');
+            if (text.at(-2) !== '/') text = text.substring(0, text.length-3) + '/' + text.substring(text.length-2);
+            console.log(`fixed text: ${text}`);
+            let match = text.match(/^(\d\d?)\/(\d\d)$/);
+
             if (match) {
                 now = Date.now();
                 let nextFloorNum = match[1];
                 let thisFloorNum = nextFloorNum-1;
-                let numLevels = match[2];
-                let nextLevelType = match[3];
+                totalLevels = Math.max(totalLevels, match[2]);
+                let {data: {text}} = await nameWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
+                    rectangle: { top: nextFloorY, left: nextFloorX, width: 400, height: nextFloorHeight}
+                });
+                text = text.toUpperCase();
+
+                let nextLevelType = bestLDArray(text, tower.floors[nextFloorNum]?.type??'', ['BOSS', 'MERCHANT', 'COMBAT'])?.result;
                 let debugFN = `debug/${thisFloorNum}`;
+                console.log(`best match for next level: ${nextLevelType}`);
 
                 if (tower.floors[nextFloorNum] === undefined) {
                     tower.floors[nextFloorNum] = { num: nextFloorNum, type: nextLevelType, rewards: []};
@@ -370,22 +390,34 @@ function writeRGBAImage(img, fn: string) {
 
                 if (itemNum != undefined && itemNum < 5) {
                     // find item name
-                    let {data: {text: line1}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                    let {data: {text: line1}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
                     cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
                     cv.putText(imageOutput, `[${line1}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
-                    let {data: {text: line2}} = await worker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        rectangle: { top: 260, left: 1230, width: 600, height: 45}
-                    });
-                    cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
-                    cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                    // see if we need the second line
+                    let countWhite = 0;
+                    for (let offset=0; offset<30; offset++) {
+                        let pixelValue = image.ucharPtr(265, 1230+offset);
+                        if (pixelValue[0] > 128) countWhite++;
+                    }
+                    let tessName = line1;
+                    if (countWhite) {
+                        cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
+                        let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                            rectangle: { top: 260, left: 1230, width: 600, height: 45}
+                        });
+                        cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
+                        cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                        tessName += line2;
+                    }
+                    tessName = tessName.toUpperCase().replace(/\n/g, ' ').trim();
 
-                    let tessName = (`${line1}${line2}`).replace(/\n/g, ' ').trim();
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
-                    let {result, score} = bestLD(tessName, floor.rewards[itemNum]?.name??'');
+                    let {result, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
                     console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
                     console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
+                    cv.putText(imageOutput, `[${result}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
                     let item = floor.rewards[itemNum];
@@ -421,15 +453,20 @@ function writeRGBAImage(img, fn: string) {
                     */
 
                     console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
+                    let totalMTTime = 0;
+                    let totalScanTime = 0;
                     let rectArr: any[][] = []; 
                     enchantments.forEach((e, ind) => {
                         //process.stdout.clearLine(1);
                         //process.stdout.write(`${(ind+1).toString().padStart(3)}/${enchantments.length} Searching for enchantment: ${e.name}\r`);
                         let matchResult = new cv.Mat();
                         //console.log(`Trying matchTemplate`);
+                        let n = Date.now();
                         try {
                         cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCORR_NORMED, e.mask);
+                        totalMTTime += Date.now()-n;
                         } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                        n = Date.now();
                         for (let y=0; y<matchResult.rows; y++) {
                             for (let x=0; x<matchResult.cols; x++) {
                                 const score = matchResult.floatAt(y, x);
@@ -447,7 +484,8 @@ function writeRGBAImage(img, fn: string) {
                                     //console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
                                     let pointA = new cv.Point(xReal, yReal);
                                     let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
-                                    rectArr.push([pointA, pointB, e.name]);
+                                    rectArr.push([pointA, pointB, e.name, slot, score]);
+                                    if (slot < 0 || slot > 5) continue;
                                 
                                     if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
                                         console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
@@ -459,24 +497,33 @@ function writeRGBAImage(img, fn: string) {
                                 }
                             }
                         }
+                        totalScanTime += Date.now()-n;
                         //*/
                         
                         // Clean up
                         matchResult.delete();
                     });
-                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) match enchantment icons`); now = Date.now();
+                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) match enchantment icons (matchTime = ${totalMTTime}, scanTime=${totalScanTime})`); now = Date.now();
                     rectArr.forEach(r => {
+                        if (item.confidence[r[3]] != r[4]) {
+                            return;
+                        }
                         let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
-                        cv.putText(textImage, `[${r[2]}]`, new cv.Point(r[0].x, r[0].y), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                        cv.rectangle(imageOutput, r[0], r[1], colorRed, 2, cv.LINE_8, 0)
                         let pt = r[0];
-                        let rot = cv.getRotationMatrix2D(pt, 45, 1.0);
+                        if (r[3] % 3 === 1) { pt.y += 80; }
+                        else { pt.x += 40; }
+                        cv.putText(textImage, `[${r[2]}] (${r[4].toFixed(3)})`, new cv.Point(r[0].x, r[0].y), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                        let rot = cv.getRotationMatrix2D(pt, (r[3]%3 === 1)?-45:45, 1.0);
                         cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
                         try {
                         cv.add(imageOutput, textImage, imageOutput);
                         } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                        cv.rectangle(imageOutput, r[0], r[1], colorRed, 2, cv.LINE_8, 0)
+                        textImage.delete();
+                        rot.delete();
                     });
                     writeRGBAImage(imageOutput, `${debugImageFN}.png`);
+                    writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
                     //process.stdout.clearLine(1);
                     //console.log(`Finished scanning for enchantments! (${Math.trunc(Date.now()-now)/1000}s)`);
@@ -520,6 +567,7 @@ function writeRGBAImage(img, fn: string) {
                 contours.delete();
                 hierarchy.delete();
             } else {
+                writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!!${fn} UNMATCHED text: [${text}]`);
             }
 
@@ -532,7 +580,8 @@ function writeRGBAImage(img, fn: string) {
             if (sinceLastSelection === 10) outputFloorRewards(lastFloorNum);
             if (sinceLastSelection > 10) {
                 // we could delete these image files once we are correctly finding all item selection screens
-                fs.unlinkSync(fn);
+                //fs.unlinkSync(fn);
+                console.log(`!!! UNLINK ${fn}`);
             }
         }
 
@@ -547,15 +596,14 @@ function writeRGBAImage(img, fn: string) {
     itemHighlightL.delete();
     itemHighlightH.delete();
 
-    await worker.terminate();
+    await levelWorker.terminate();
+    await nameWorker.terminate();
     //} catch (err) {
         //console.trace(cvTranslateError(cv, err));
     //}
 
-    outputFloorRewards(lastFloorNum);
-    for (let i=0; i<=lastFloorNum; i++) {
+    for (let i=0; i<=totalLevels; i++) {
         outputFloorRewards(i);
-
     }
 
 })();
@@ -958,6 +1006,10 @@ const OCR_LOOKUP = {
     'CS': 0.4,
     'LG': 0.4,
     'GL': 0.4,
+    'QO': 0.2,
+    'OQ': 0.2,
+    '[C': 0.2,
+    'C[': 0.2,
 }
 
 function LevenshteinDistance(s: string, t: string, best: number): number {
@@ -990,12 +1042,16 @@ function LevenshteinDistance(s: string, t: string, best: number): number {
     return v0[n];
 }
 
-function bestLD(s: string, expected: string): {result: string, score: number} {
+function bestLDItem(s: string, expected: string): {result: string, score: number} {
+    return bestLDArray(s, expected, items);
+}
+
+function bestLDArray(s: string, expected: string, arr: string[]): {result: string, score: number} {
     //console.log(`bestLD(${s})`);
     //expected = 'Nautical Crossbow';
     let score = LevenshteinDistance(s, expected.toUpperCase(), Infinity);
     let result = expected;
-    for (let item of items.filter(item => item !== expected.toUpperCase())) {
+    for (let item of arr.filter(item => item !== expected.toUpperCase())) {
         let t = item.toUpperCase();
         let sScore = LevenshteinDistance(s, t, score);
         if (sScore === 0) {
@@ -1081,7 +1137,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Protection.png', name: 'Protection'},
 {fn: 'Punch.png', name: 'Punch'},
 {fn: 'Radiance.png', name: 'Radiance'},
-{fn: 'T_RadianceRanged_Icon.png', name: 'Radiance Shot'},
+{fn: 'T_RadianceRanged_Icon.png', name: 'Radiance'},
 {fn: 'Rampaging.png', name: 'Rampaging'},
 {fn: 'Rapid_Fire.png', name: 'Rapid Fire'},
 {fn: 'Reckless_(MCD_Enchantment).png', name: 'Reckless'},
