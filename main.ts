@@ -224,7 +224,7 @@ function computeMSE(img1, img2) {
             // crop from contour image
             let nextFloorX = 380;
             let nextFloorY = 70;
-            let nextFloorWidth = 125;
+            let nextFloorWidth = 120;
             let nextFloorHeight = 45;
 
             let imageGS = new cv.Mat();
@@ -413,7 +413,7 @@ function computeMSE(img1, img2) {
                                     col = Math.round(Math.abs(col)/88);
                                     if (row === 1) slot += 1;
                                     else slot += col*2;
-                                    console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
+                                    //console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
                                     let pointA = new cv.Point(xReal, yReal);
                                     let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
                                     rectArr.push([pointA, pointB, e.name, slot, score]);
