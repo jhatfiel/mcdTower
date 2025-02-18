@@ -6,19 +6,37 @@ const {glob, globSync} = require('glob');
 const { createWorker } = require('tesseract.js');
 const Tesseract = require('tesseract.js');
 
+const OUT = fs.createWriteStream('_tower.txt');
+
 const WIDTH = 1920;
 const HEIGHT = 1080;
 const HSV_MAT_TYPE = 16;
 const RGB_MAT_TYPE = 24;
+const E_SIZE = 95;
+const E_SIZE_HALF = Math.trunc(E_SIZE/2);
+const E_LOC_ARR = [
+[1240,708],
+[1284,750],
+[1328,708],
+[1425,708],
+[1469,750],
+[1513,708],
+[1610,708],
+[1654,750],
+[1698,708],
+];
+const DEBUG = false;
 
 interface Enchantment {
     fn: string
     name: string
+    maxMSE?: number
     meleeName?: string
     rangedName?: string
     armorName?: string
     image?: any
     mask?: any
+    bMask?: any
 };
 
 interface Item {
@@ -61,6 +79,7 @@ function logMatInfo(mat, prefix='') {
 }
 
 function writeGrayscaleImage(img, fn: string) {
+    if (!DEBUG) return;
     const imgRGBA = new Uint8Array(img.rows * img.cols * 4);
 
     for (let i = 0; i < img.rows * img.cols; i++) {
@@ -75,8 +94,42 @@ function writeGrayscaleImage(img, fn: string) {
 }
 
 function writeRGBAImage(img, fn: string) {
+    if (!DEBUG) return;
     console.log(`Writing to ${fn}`);
     new Jimp({width: img.cols, height: img.rows, data: Buffer.from(img.data)}).write(fn);
+}
+
+function computeMSE(img1, img2) {
+    let diff = new cv.Mat();
+    cv.absdiff(img1, img2, diff); // Compute absolute difference between images
+    diff.convertTo(diff, cv.CV_32F); // Convert to float for precision
+
+    let squared = new cv.Mat();
+    cv.multiply(diff, diff, squared); // Square the differences
+
+    let mean = new cv.Mat();
+    cv.reduce(squared, mean, 0, cv.REDUCE_AVG); // Compute mean of squared differences
+    cv.reduce(mean, mean, 1, cv.REDUCE_AVG); // Compute mean of squared differences
+
+    let mse = mean.data32F.reduce((sum, v)=>sum+=v,0); // Extract MSE value
+    /*
+    let mse = 0;
+    for (let i=0; i<squared.data32F.length/4; i++) {
+        let sum = Math.max(squared.data32F[4*i],
+                  squared.data32F[4*i+1],
+                  squared.data32F[4*i+2],
+                  squared.data32F[4*i+3]);
+        mse += sum;
+    }
+    mse /= squared.data32F.length/4;
+    */
+
+    // Clean up
+    diff.delete();
+    squared.delete();
+    mean.delete();
+
+    return mse;
 }
 
 (async () => {
@@ -97,21 +150,22 @@ function writeRGBAImage(img, fn: string) {
     let now = Date.now();
     process.stderr.write(`Loading ${enchantments.length} enchantment images....`);
     for (let e of enchantments) {
-        const src = (await Jimp.read(`./images/${e.fn}`)).resize({w: 92, h: 92, mode: ResizeStrategy.HERMITE});
+        const src = (await Jimp.read(`./images/${e.fn}`)).resize({w: E_SIZE, h: E_SIZE, mode: ResizeStrategy.HERMITE});
         e.image = cv.matFromImageData(src.bitmap);
 
         // Extract alpha channel as mask
         let rgba = new cv.MatVector();
         cv.split(e.image, rgba);
+        e.bMask = new cv.Mat();
         e.mask = new cv.Mat();
-        cv.threshold(rgba.get(3), e.mask, 1, 255, cv.THRESH_BINARY);
+        cv.threshold(rgba.get(3), e.bMask, 1, 255, cv.THRESH_BINARY);
 
         rgba = new cv.MatVector();
         //rgba.push_back(e.mask);
-        rgba.push_back(e.mask);
-        rgba.push_back(e.mask);
-        rgba.push_back(e.mask);
-        rgba.push_back(new cv.Mat.zeros(e.mask.rows, e.mask.cols, cv.CV_8U));
+        rgba.push_back(e.bMask);
+        rgba.push_back(e.bMask);
+        rgba.push_back(e.bMask);
+        rgba.push_back(new cv.Mat.zeros(e.bMask.rows, e.bMask.cols, cv.CV_8U));
 
         cv.merge(rgba, e.mask);
     };
@@ -127,12 +181,13 @@ function writeRGBAImage(img, fn: string) {
     let lastFloorNum = 0;
     let totalLevels = 0;
 
-    for await (let fn of globSync('test/*.png').sort()) {
-        //if (!['004456'].some(frame => fn.startsWith(`videos\\out${frame}`))) continue;
+    for await (let fn of globSync('videos/*.png').sort()) {
+        //if (!['000502'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
 
-        console.log(`${fn} ${'-'.repeat(80)}`);
+        if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
+        else process.stdout.write(`${fn} `);
+
         let debugImageFN = `debug/${fn.replace(/.*[\/\\]/g, '').replace(/\.png/, '')}`;
-        let found = false;
 
         // Read the input image
         now = Date.now();
@@ -163,7 +218,7 @@ function writeRGBAImage(img, fn: string) {
         hierarchy.delete();
 
         if (isSelectionScreen) {
-            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
+            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
 
             // crop from contour image
@@ -185,20 +240,20 @@ function writeRGBAImage(img, fn: string) {
             }
             let imageGSJimp = new Jimp({width: imageGS.cols, height: imageGS.rows, data: Buffer.from(imageRGBA)});
 
-            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
+            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
             let {data: {text}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
             text = text.trim().replace(/[\\n\\r]/, '');
-            console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
+            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
-            cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
-            cv.putText(imageOutput, `[${text}]`, new cv.Point(nextFloorX, nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
+            if (DEBUG) cv.putText(imageOutput, `[${text}]`, new cv.Point(nextFloorX, nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
             //console.log(`Detected text: [${text}]`);
             text = text.replace(/ /g, '').replace(/:.*$/, '');
             if (text.at(-2) !== '/') text = text.substring(0, text.length-3) + '/' + text.substring(text.length-2);
-            console.log(`fixed text: ${text}`);
+            if (DEBUG) console.log(`fixed text: ${text}`);
             let match = text.match(/^(\d\d?)\/(\d\d)$/);
 
             if (match) {
@@ -213,7 +268,7 @@ function writeRGBAImage(img, fn: string) {
 
                 let nextLevelType = bestLDArray(text, tower.floors[nextFloorNum]?.type??'', ['BOSS', 'MERCHANT', 'COMBAT'])?.result;
                 let debugFN = `debug/${thisFloorNum}`;
-                console.log(`best match for next level: ${nextLevelType}`);
+                if (!DEBUG) process.stdout.write(`${thisFloorNum}/${totalLevels} `);
 
                 if (tower.floors[nextFloorNum] === undefined) {
                     tower.floors[nextFloorNum] = { num: nextFloorNum, type: nextLevelType, rewards: []};
@@ -248,8 +303,8 @@ function writeRGBAImage(img, fn: string) {
                     imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                 }
                 const imageRGBAJimp = new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)});
-                writeGrayscaleImage(mask, `${debugFN}_mask.png`);
-                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote mask`); now = Date.now();
+                //writeGrayscaleImage(mask, `${debugFN}_mask.png`);
+                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote mask`); now = Date.now();
 
                 //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)}).write('mask.png');
 
@@ -270,15 +325,16 @@ function writeRGBAImage(img, fn: string) {
                         break;
                     }
                 }
-                console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
+                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
 
                 if (itemNum != undefined && itemNum < 5) {
+                    if (!DEBUG) process.stdout.write(`${itemNum} `);
                     // find item name
                     let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
-                    cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
-                    cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                    if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
+                    if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                     // see if we need the second line
                     let countWhite = 0;
                     for (let offset=0; offset<30; offset++) {
@@ -298,8 +354,9 @@ function writeRGBAImage(img, fn: string) {
 
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
                     let {result, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
-                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
-                    console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
+                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
+                    if (DEBUG) console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
+                    if (!DEBUG) process.stdout.write(`${result} `);
                     cv.putText(imageOutput, `[${result}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
@@ -321,19 +378,19 @@ function writeRGBAImage(img, fn: string) {
                         }
                     }
                     item.name = result;
-                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
+                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
 
                     //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
+                    /*
                     const xOffset = 1250;
                     const yOffset = 700;
                     const buffer = 50;
                     const roi = image.roi(new cv.Rect(xOffset-buffer, yOffset-buffer, 520+2*buffer, 135+2*buffer));
 
-                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
                     let totalMTTime = 0;
                     let totalScanTime = 0;
                     let rectArr: any[][] = []; 
-                    enchantments.forEach(e => {
+                    enchantments.filter(_=>false).forEach(e => {
                         let matchResult = new cv.Mat();
                         let n = Date.now();
                         try {
@@ -376,7 +433,10 @@ function writeRGBAImage(img, fn: string) {
                         // Clean up
                         matchResult.delete();
                     });
-                    console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) match enchantment icons (matchTime = ${totalMTTime}, scanTime=${totalScanTime})`); now = Date.now();
+
+                    // Clean up
+                    roi.delete();
+
                     rectArr.forEach(r => {
                         if (item.confidence[r[3]] != r[4]) {
                             return;
@@ -395,6 +455,7 @@ function writeRGBAImage(img, fn: string) {
                         textImage.delete();
                         rot.delete();
                     });
+                    */
 
                     /* Check directly at locations and do a short circuiting mean-squared-error for each enchantment image at that particular location
 1241,709
@@ -412,11 +473,75 @@ function writeRGBAImage(img, fn: string) {
                     Additionally, we can set a maximum MSE that indicates that if we don't find an enchantment by that point, this slot must be empty.
                     */
 
+                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
+                    let found = [];
+                    for (let slot=0; slot<E_LOC_ARR.length; slot++) {
+                        let [x,y] = E_LOC_ARR[slot];
+                        const eImg = image.roi(new cv.Rect(x, y, E_SIZE, E_SIZE));
+                        enchantments.forEach(e => {
+                            let maxMSE = e.maxMSE??3000; // maximum score for match
+                            let maskedImg = new cv.Mat();
+
+                            try {
+                            cv.bitwise_and(eImg, eImg, maskedImg, e.bMask);
+                            //console.log(`${slot}: ${e.name}`);
+                            let score = computeMSE(maskedImg, e.image);
+                            maskedImg.delete();
+                            if (score > maxMSE) return;
+                            found[slot] = e.name;
+
+                            if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
+                                if (DEBUG) console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
+                                found[slot] = '.@.@.@.@.CONFLICT.@.@.@.@.';
+                            }
+                            if (item.confidence[slot] === 0 || score < item.confidence[slot]) {
+                                item.confidence[slot] = score;
+                                item.enchantments[slot] = e.name;
+                            }
+
+                            if (DEBUG) {
+                                // highlight the enchantment icon
+                                const points = [];
+                                points[0] = new cv.Point(x+E_SIZE_HALF, y+7);
+                                points[1] = new cv.Point(x+7, y+E_SIZE_HALF);
+                                points[2] = new cv.Point(x+E_SIZE_HALF, y+E_SIZE-7);
+                                points[3] = new cv.Point(x+E_SIZE-7, y+E_SIZE_HALF);
+                                for (let i=0; i<4; i++) {
+                                    cv.line(imageOutput, points[i], points[(i+1)%4], colorRed, 2, cv.LINE_8, 0)
+                                }
+
+                                // draw on the image
+                                let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
+                                let pt = new cv.Point(x, y);
+                                if (slot % 3 === 1) { pt.y += 80; }
+                                else { pt.x += 40; }
+                                cv.putText(textImage, `[${e.name}] (${score.toFixed(3)})`, pt, cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                                let rot = cv.getRotationMatrix2D(pt, (slot%3 === 1)?-45:45, 1.0);
+                                cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
+                                try {
+                                cv.add(imageOutput, textImage, imageOutput);
+                                } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                                textImage.delete();
+                                rot.delete();
+
+                                console.log(`SLOT: ${slot}, score=${score}, for ${e.name}`);
+                            }
+
+                            } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                        });
+                        eImg.delete();
+                        //if (eName) console.log(`------------ Slot: ${slot} (${x},${y}) = ${eName} score=${minMSE}`);
+                    }
+                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) MSE enchantment icons (${Date.now()-now}ms)`); now = Date.now();
+
+                    if (!DEBUG) process.stdout.write(`- ${found.join('/')}`);
+
                     writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                     writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
-                    // Clean up
-                    roi.delete();
+                    if (!DEBUG) console.log('');
+                } else {
+                    if (!DEBUG) console.log('No Item Selected');
                 }
 
                 // Clean up
@@ -433,18 +558,21 @@ function writeRGBAImage(img, fn: string) {
             imageGS.delete();
         } else {
             sinceLastSelection++;
-            if (sinceLastSelection === 10) outputFloorRewards(lastFloorNum);
             if (sinceLastSelection > 10) {
                 // we could delete these image files once we are correctly finding all item selection screens
                 //fs.unlinkSync(fn);
                 console.log(`!!! UNLINK ${fn}`);
+            } else {
+                console.log(`SKIP`);
+            }
+            if (sinceLastSelection === 5) {
+                if (DEBUG) outputFloorRewards(lastFloorNum);
+                OUT.write(getFloorRewards(lastFloorNum) + "\n");
             }
         }
 
         image.delete();
         imageOutput.delete();
-
-        if (found) break;
     };
 
     itemSelectionL.delete();
@@ -455,26 +583,33 @@ function writeRGBAImage(img, fn: string) {
     await levelWorker.terminate();
     await nameWorker.terminate();
 
+    let content = '';
     for (let i=0; i<=totalLevels; i++) {
-        outputFloorRewards(i);
+        content += getFloorRewards(i);
     }
-
+    fs.writeFileSync('tower.txt', content);
 })();
 
-function outputFloorRewards(floorNum) {
+function getFloorRewards(floorNum) {
     let floor = tower.floors[floorNum];
     if (!floor) return;
     if (floor.type === 'MERCHANT') {
-        console.log(`${floorNum}\t\t`);
+        return `${floorNum}\t\t`;
     } else {
+        let content = [];
         let numRewards = (floorNum === 0)?3:5;
         for (let i=0; i<numRewards; i++) {
             let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
             let name = reward.name;
-            console.log(`${floorNum}\t${name}\t${reward.enchantments.join('\t')}`);
+            content.push(`${floorNum}\t${name}\t${reward.enchantments.join('\t')}`);
         }
+        return content.join('\n');
     }
+}
 
+function outputFloorRewards(floorNum) {
+    let content = getFloorRewards(floorNum);
+    if (content) console.log(content);
 }
 
 const items: string[] = [
@@ -783,10 +918,12 @@ function LevenshteinDistance(s: string, t: string, best: number): number {
             let substitutionCost = (s[i] === t[j])?v0[j]:(v0[j]+(OCR_TRANSPOSE[s[i]+t[j]]??1));
             v1[j+1] = Math.min(deletionCost, insertionCost, substitutionCost);
         }
+        /*
         if (i > 0 && v1[n] >= best && v1[n] >= v0[n]) {
             //console.log(`Rejecting ${t} because ${v0[n]} >= ${best} at ${i}`);
             return Infinity;
         }
+        */
         v0 = [...v1];
     }
 
@@ -804,13 +941,14 @@ function bestLDArray(s: string, expected: string, arr: string[]): {result: strin
         let t = item.toUpperCase();
         let sScore = LevenshteinDistance(s, t, score);
         if (sScore === 0) {
+            //console.log(`New best: ${item}, ${sScore} (PERFECT MATCH)`);
             result = item;
             break;
         }
         if (sScore < score) {
             score = sScore;
             result = item;
-            console.log(`New best: ${item}, ${sScore}`);
+            //console.log(`New best: ${item}, ${sScore}`);
         }
     }
     return {result, score};
@@ -833,7 +971,7 @@ const enchantments: Enchantment[] = [
 {fn: 'BusyBee.png', name: 'Busy Bee'},
 {fn: 'Chain_Reaction.png', name: 'Chain Reaction'},
 {fn: 'Chains.png', name: 'Chains'},
-{fn: 'Chilling.png', name: 'Chilling'},
+{fn: 'Chilling.png', name: 'Chilling', maxMSE: 2500},
 {fn: 'Committed.png', name: 'Committed'},
 {fn: 'Cool_Down.png', name: 'Cool Down'},
 {fn: 'Cooldown_Shot_(MCD_Enchantment).png', name: 'Cooldown Shot'},
@@ -842,7 +980,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Death_Barter.png', name: 'Death Barter'},
 {fn: 'Deflect.png', name: 'Deflect'},
 {fn: 'Dipping_Poison.png', name: 'Dipping Poison'},
-{fn: 'DynamoMelee.png', name: 'Dynamo'},
+{fn: 'DynamoMelee.png', name: 'Dynamo'}, // this one is 256x255 (instead of normal 256x256)
 {fn: 'DynamoRanged.png', name: 'Dynamo'},
 {fn: 'Echo.png', name: 'Echo'},
 {fn: 'Electrified.png', name: 'Electrified'},
@@ -853,7 +991,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Explorer.png', name: 'Explorer'},
 {fn: 'Final_Shout.png', name: 'Final Shout'},
 {fn: 'Fire_Aspect.png', name: 'Fire Aspect'},
-{fn: 'FireFocus_(MCD_Enchantment).png', name: 'Fire Focus'},
+{fn: 'FireFocus_(MCD_Enchantment).png', name: 'Fire Focus'}, // this one is 256x255 (instead of normal 256x256)
 {fn: 'Fire_Trail.png', name: 'Fire Trail'},
 {fn: 'Food_Reserves.png', name: 'Food Reserves'},
 {fn: 'Freezing.png', name: 'Freezing'},
@@ -876,9 +1014,9 @@ const enchantments: Enchantment[] = [
 {fn: 'Multi_Roll.png', name: 'Multi-Roll'},
 {fn: 'Multishot.png', name: 'Multishot'},
 {fn: 'Multi-Charge_(MCD_Enchantment).png', name: 'Overcharge'},
-{fn: 'Pain_Cycle_(MCD_Enchantment).png', name: 'Pain Cycle'},
+{fn: 'Pain_Cycle_(MCD_Enchantment).png', name: 'Pain Cycle', maxMSE: 1000},
 {fn: 'Piercing.png', name: 'Piercing'},
-{fn: 'Poison_Cloud.png', name: 'Poison Cloud'},
+{fn: 'Poison_Cloud.png', name: 'Poison Cloud', maxMSE: 1000},
 {fn: 'PoisonFocus_(MCD_Enchantment).png', name: 'Poison Focus'},
 {fn: 'Potion_Barrier.png', name: 'Potion Barrier'},
 {fn: 'Power.png', name: 'Power'},
@@ -891,8 +1029,8 @@ const enchantments: Enchantment[] = [
 {fn: 'Rapid_Fire.png', name: 'Rapid Fire'},
 {fn: 'Reckless_(MCD_Enchantment).png', name: 'Reckless'},
 {fn: 'Recycler.png', name: 'Recycler'},
-{fn: 'Refreshment_Melee_(MCD_Enchantment).png', name: 'Refreshment'},
-{fn: 'Refreshment_Ranged_(MCD_Enchantment).png', name: 'Refreshment'},
+{fn: 'Refreshment_Melee_(MCD_Enchantment).png', name: 'Refreshment', maxMSE: 1800},
+{fn: 'Refreshment_Ranged_(MCD_Enchantment).png', name: 'Refreshment', maxMSE: 1800},
 {fn: 'Ricochet.png', name: 'Ricochet'},
 {fn: 'Roll_Charge.png', name: 'Roll Charge'},
 //{fn: 'Rushdown.png', name: 'Rushdown'},
