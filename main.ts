@@ -241,10 +241,11 @@ function computeMSE(img1, img2) {
             let imageGSJimp = new Jimp({width: imageGS.cols, height: imageGS.rows, data: Buffer.from(imageRGBA)});
 
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
-            let {data: {text}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
+            let {data: {text: original}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
-            text = text.trim().replace(/[\\n\\r]/, '');
+            original = original.trim().replace(/[\\n\\r]/, '');
+            let text = original;
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
             if (DEBUG) cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
@@ -551,7 +552,7 @@ function computeMSE(img1, img2) {
                 hierarchy.delete();
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
-                console.log(`!!!${fn} UNMATCHED text: [${text}]`);
+                console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
             }
 
             // Clean up
