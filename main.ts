@@ -616,7 +616,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             sinceLastSelection++;
             if (sinceLastSelection > 10) {
                 // we could delete these image files once we are correctly finding all item selection screens
-                //fs.unlinkSync(fn);
+                fs.unlinkSync(fn);
                 console.log(`!!! UNLINK ${fn}`);
             } else {
                 console.log(`SKIP`);
