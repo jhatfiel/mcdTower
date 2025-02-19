@@ -25,7 +25,7 @@ const E_LOC_ARR = [
 [1654,750],
 [1698,708],
 ];
-const DEBUG = false;
+const DEBUG = process.argv.slice(2).includes('--debug');
 
 interface Enchantment {
     fn: string
@@ -44,6 +44,8 @@ interface Item {
     possibleNames: Map<string, number>
     enchantments: string[]
     confidence: number[]
+    seen: Map<string, number>
+    settled?: string
 };
 
 interface EnchantmentMatch {
@@ -67,9 +69,9 @@ function emptyConfidence(): number[] { return new Array(9).fill(0); }
 const tower: Tower = {
     floors: [
         {num: 0, type: 'START', rewards: [
-            {name: 'Sword', possibleNames: new Map<string, number>([['Sword', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Mercenary Armor', possibleNames: new Map<string, number>([['Mercenary Armor', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()},
-            {name: 'Bow', possibleNames: new Map<string, number>([['Bow', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence()}
+            {name: 'Sword', possibleNames: new Map<string, number>([['Sword', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()},
+            {name: 'Mercenary Armor', possibleNames: new Map<string, number>([['Mercenary Armor', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()},
+            {name: 'Bow', possibleNames: new Map<string, number>([['Bow', 1]]), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()}
         ]}
     ]
 };
@@ -132,6 +134,20 @@ function computeMSE(img1, img2) {
     return mse;
 }
 
+function extractImageAsGrayscaleJimp(img, x, y, w, h) {
+    let gs = img.roi(new cv.Rect(x, y, w, h));
+    cv.cvtColor(gs, gs, cv.COLOR_BGRA2GRAY);
+    cv.threshold(gs, gs, 128, 255, cv.THRESH_BINARY);
+    const rgba = new Uint8Array(gs.rows * gs.cols * 4);
+    for (let i=0; i<gs.rows*gs.cols; i++) {
+        rgba[i*4] = rgba[i*4 + 1] = rgba[i*4 + 2] = gs.data[i];
+        rgba[i*4 + 3] = 255;
+    }
+    let result = new Jimp({width: gs.cols, height: gs.rows, data: Buffer.from(rgba)});
+    gs.delete();
+    return result;
+}
+
 (async () => {
     let colorRed = new cv.Scalar(255, 0, 0, 255);
     let colorGreen = new cv.Scalar(0, 255, 0, 255);
@@ -139,7 +155,7 @@ function computeMSE(img1, img2) {
     const nameWorker = await createWorker('eng');
     await levelWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
-        tessedit_char_whitelist: '/0123456789:',
+        tessedit_char_whitelist: '/0123456789B:',
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
     await nameWorker.setParameters({
@@ -182,7 +198,9 @@ function computeMSE(img1, img2) {
     let totalLevels = 0;
 
     for await (let fn of globSync('videos/*.png').sort()) {
-        //if (!['000502'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        //if (!['000491', '004440', '011510'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
+        if (parseInt(fn.substring(fn.indexOf('0'))) < 2170) continue;
 
         if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
         else process.stdout.write(`${fn} `);
@@ -192,6 +210,7 @@ function computeMSE(img1, img2) {
         // Read the input image
         now = Date.now();
         const jimpSrc = await Jimp.read(fn);
+        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Image Loaded into jimp`); now = Date.now();
         const image = cv.matFromImageData(jimpSrc.bitmap);
         const imageOutput = cv.matFromImageData(jimpSrc.bitmap);
         let isSelectionScreen = false;
@@ -199,13 +218,13 @@ function computeMSE(img1, img2) {
         const itemSelectImage = new cv.Mat();
 
         // first, see if this is an item selection screen
-        let contours = new cv.MatVector();
+        let contourArray = new cv.MatVector();
         let hierarchy = new cv.Mat();
         cv.inRange(image, itemSelectionL, itemSelectionH, itemSelectImage);
-        cv.findContours(itemSelectImage, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+        cv.findContours(itemSelectImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
-        for (let i=0; i<contours.size(); i++) {
-            const contour = contours.get(i);
+        for (let i=0; i<contourArray.size(); i++) {
+            const contour = contourArray.get(i);
             const rect = cv.boundingRect(contour);
             if (rect.x > 1200 && rect.width > 500 && rect.height > 100) {
                 //console.log(`Found item selection screen!`, rect);
@@ -214,46 +233,62 @@ function computeMSE(img1, img2) {
             }
         }
         itemSelectImage.delete();
-        contours.delete();
+        contourArray.delete();
         hierarchy.delete();
 
         if (isSelectionScreen) {
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
 
-            // crop from contour image
-            let nextFloorX = 380;
-            let nextFloorY = 70;
+            // convert image to grayscale and store as jimp image for text recognition of level and next level type
+            let imageLevelOffsetX = 380;
+            let imageLevelOffsetY = 70;
+            let imageGSJimp = extractImageAsGrayscaleJimp(image, imageLevelOffsetX, imageLevelOffsetY, 500, 45);
+            if (DEBUG) imageGSJimp.write(`${debugImageFN}_gs.png`);
+
+            /*
+            // trying to get individual number images for matching?
+            for (let i=0; i<10; i++) {
+                let left=386;
+                let top=75;
+                let w=19;
+                let h=32;
+                const ra = new Uint8Array(w*h*4);
+                for (let y=0; y<h; y++) {
+                    for (let x=0; x<w; x++) {
+                        let j=x+y*w;
+                        ra[j*4] = ra[j*4+1] = ra[j*4+2] = imageGS.data[(top+y)*imageGS.cols + left + x + i*w];
+                        ra[j*4+3] = 255;
+                    }
+                }
+                new Jimp({width: w, height: h, data: Buffer.from(ra)}).write(`${debugImageFN}_level_${i}.png`);
+            }
+            */
+
+            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
+
+            // detect level text
+            let nextFloorX = 0;
+            let nextFloorY = 0;
             let nextFloorWidth = 120;
             let nextFloorHeight = 45;
 
-            let imageGS = new cv.Mat();
-            cv.cvtColor(image, imageGS, cv.COLOR_BGRA2GRAY);
-            cv.threshold(imageGS, imageGS, 128, 255, cv.THRESH_BINARY);
-            const imageRGBA = new Uint8Array(imageGS.rows * imageGS.cols * 4);
-            for (let i=0; i<imageGS.rows*imageGS.cols; i++) {
-                const value = imageGS.data[i];
-                imageRGBA[i*4] = value;
-                imageRGBA[i*4 + 1] = value;
-                imageRGBA[i*4 + 2] = value;
-                imageRGBA[i*4 + 3] = 255;
-            }
-            let imageGSJimp = new Jimp({width: imageGS.cols, height: imageGS.rows, data: Buffer.from(imageRGBA)});
-
-            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
             let {data: {text: original}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
             original = original.trim().replace(/[\\n\\r]/, '');
-            let text = original;
+            let text = original.replace(/B/g, '6');
+            text = text.replace(/ /g, '').replace(/:.*$/, '');
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
-            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(nextFloorX, nextFloorY), new cv.Point(nextFloorX+nextFloorWidth, nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
-            if (DEBUG) cv.putText(imageOutput, `[${text}]`, new cv.Point(nextFloorX, nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(imageLevelOffsetX+nextFloorX, imageLevelOffsetY+nextFloorY), new cv.Point(imageLevelOffsetX+nextFloorX+nextFloorWidth, imageLevelOffsetY+nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
+            if (DEBUG) cv.putText(imageOutput, `[${text}] (${original})`, new cv.Point(imageLevelOffsetX+nextFloorX, imageLevelOffsetY+nextFloorY+nextFloorHeight*2), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
             //console.log(`Detected text: [${text}]`);
-            text = text.replace(/ /g, '').replace(/:.*$/, '');
-            if (text.at(-2) !== '/') text = text.substring(0, text.length-3) + '/' + text.substring(text.length-2);
+            if (text.at(-3) !== '/') {
+                if (text.at(-3) === '7' && text.length >= 4) text = text.substring(0, text.length-3) + '/' + text.substring(text.length-2);
+                else text = text.substring(0, text.length-2) + '/' + text.substring(text.length-2);
+            }
             if (DEBUG) console.log(`fixed text: ${text}`);
             let match = text.match(/^(\d\d?)\/(\d\d)$/);
 
@@ -285,37 +320,38 @@ function computeMSE(img1, img2) {
                 //console.log(`Found floor: ${nextFloor-1}`);
 
                 // now, figure out which item is highlighted
+                // TODO: only do this with the item selection section, not the entire image
                 const hsv = new cv.Mat();
-                const mask = new cv.Mat();
-                const contours = new cv.MatVector();
+                const contourImage = new cv.Mat();
+                const contourArray = new cv.MatVector();
                 const hierarchy = new cv.Mat();
 
-                // Create the mask
+                // Create the contour image
                 cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
-                cv.inRange(hsv, itemHighlightL, itemHighlightH, mask);
-                // Convert single-channel mask to RGBA for Jimp
-                const imageRGBA = new Uint8Array(mask.rows * mask.cols * 4);
+                cv.inRange(hsv, itemHighlightL, itemHighlightH, contourImage);
+                // Convert single-channel contour image to RGBA for Jimp
+                const imageRGBA = new Uint8Array(contourImage.rows * contourImage.cols * 4);
 
-                for (let i = 0; i < mask.rows * mask.cols; i++) {
-                    const value = mask.data[i]; // Grayscale value from the mask
+                for (let i = 0; i < contourImage.rows * contourImage.cols; i++) {
+                    const value = contourImage.data[i]; // Grayscale value from the contour image
                     imageRGBA[i * 4] = value;    // Red channel
                     imageRGBA[i * 4 + 1] = value; // Green channel
                     imageRGBA[i * 4 + 2] = value; // Blue channel
                     imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                 }
-                const imageRGBAJimp = new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)});
-                //writeGrayscaleImage(mask, `${debugFN}_mask.png`);
-                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote mask`); now = Date.now();
+                const imageRGBAJimp = new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)});
+                //writeGrayscaleImage(contourImage, `${debugImageFN}_contours.png`);
+                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote contours`); now = Date.now();
 
-                //new Jimp({width: mask.cols, height: mask.rows, data: Buffer.from(imageRGBA)}).write('mask.png');
+                //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
 
                 // Find contours
-                cv.findContours(mask, contours, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                cv.findContours(contourImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                 // set itemNum based on where the bounding box above was found
                 let itemNum: number = undefined;
 
-                for (let i = 0; i < contours.size(); i++) {
-                    const contour = contours.get(i);
+                for (let i = 0; i < contourArray.size(); i++) {
+                    const contour = contourArray.get(i);
                     const rect = cv.boundingRect(contour);
                     if (rect.width > 120 && rect.height > 160) {
                         //console.log(`Contour ${i} bounding box:`, rect);
@@ -328,9 +364,13 @@ function computeMSE(img1, img2) {
                 }
                 if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
 
-                if (itemNum != undefined && itemNum < 5) {
+                if (itemNum != undefined && itemNum < 5 && floor.rewards[itemNum]?.settled) {
+                    if (!DEBUG) console.log(`${itemNum} ${floor.rewards[itemNum].settled} SETTLED!`);
+                    else console.log(`Skipping item - ${floor.rewards[itemNum].settled} SETTLED!`);
+                } else if (itemNum != undefined && itemNum < 5) {
                     if (!DEBUG) process.stdout.write(`${itemNum} `);
                     // find item name
+                    // TODO: we should be using the same grayscale image for item text shouldn't we??
                     let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
@@ -354,19 +394,19 @@ function computeMSE(img1, img2) {
                     tessName = tessName.toUpperCase().replace(/\n/g, ' ').trim();
 
                     // use Damerau-Levenshtein for each item sorted by cosine similarity
-                    let {result, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
+                    let {result: itemName, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
                     if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
-                    if (DEBUG) console.log(`Found item name: ${result} (was ${tessName}) score=${score}`);
-                    if (!DEBUG) process.stdout.write(`${result} `);
-                    cv.putText(imageOutput, `[${result}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                    if (DEBUG) console.log(`Found item name: ${itemName} (was ${tessName}) score=${score}`);
+                    if (!DEBUG) process.stdout.write(`${itemName} `);
+                    cv.putText(imageOutput, `[${itemName}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
 
                     //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
                     let item = floor.rewards[itemNum];
                     if (item === undefined) {
-                        item = {name: result, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence() };
+                        item = {name: itemName, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()};
                         floor.rewards[itemNum] = item;
                     }
-                    item.possibleNames.set(result, (item.possibleNames.get(result)??0)+1);
+                    item.possibleNames.set(itemName, (item.possibleNames.get(itemName)??0)+1);
                     let mostFound = 0;
                     let iter = item.possibleNames.entries();
                     while (true) {
@@ -375,10 +415,10 @@ function computeMSE(img1, img2) {
                         //console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
                         if (entry.value[1] > mostFound) {
                             mostFound = entry.value[1];
-                            result = entry.value[0];
+                            itemName = entry.value[0];
                         }
                     }
-                    item.name = result;
+                    item.name = itemName;
                     if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
 
                     //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
@@ -475,7 +515,7 @@ function computeMSE(img1, img2) {
                     */
 
                     if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
-                    let found = [];
+                    let enchantmentsFound = [];
                     for (let slot=0; slot<E_LOC_ARR.length; slot++) {
                         let [x,y] = E_LOC_ARR[slot];
                         const eImg = image.roi(new cv.Rect(x, y, E_SIZE, E_SIZE));
@@ -489,11 +529,11 @@ function computeMSE(img1, img2) {
                             let score = computeMSE(maskedImg, e.image);
                             maskedImg.delete();
                             if (score > maxMSE) return;
-                            found[slot] = e.name;
+                            enchantmentsFound[slot] = e.name;
 
                             if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
                                 if (DEBUG) console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
-                                found[slot] = '.@.@.@.@.CONFLICT.@.@.@.@.';
+                                enchantmentsFound[slot] = '.@.@.@.@.CONFLICT.@.@.@.@.';
                             }
                             if (item.confidence[slot] === 0 || score < item.confidence[slot]) {
                                 item.confidence[slot] = score;
@@ -535,7 +575,12 @@ function computeMSE(img1, img2) {
                     }
                     if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) MSE enchantment icons (${Date.now()-now}ms)`); now = Date.now();
 
-                    if (!DEBUG) process.stdout.write(`- ${found.join('/')}`);
+                    if (!DEBUG) process.stdout.write(`- ${enchantmentsFound.join('/')}`);
+
+                    let itemSeen = `${itemName} - ${enchantmentsFound.join('/')}`;
+                    let seenCount = (item.seen.get(itemSeen)??0) + 1;
+                    item.seen.set(itemSeen, seenCount);
+                    if (seenCount === 5) item.settled = itemSeen;
 
                     writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                     writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
@@ -547,16 +592,13 @@ function computeMSE(img1, img2) {
 
                 // Clean up
                 hsv.delete();
-                mask.delete();
-                contours.delete();
+                contourImage.delete();
+                contourArray.delete();
                 hierarchy.delete();
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
             }
-
-            // Clean up
-            imageGS.delete();
         } else {
             sinceLastSelection++;
             if (sinceLastSelection > 10) {
@@ -566,7 +608,7 @@ function computeMSE(img1, img2) {
             } else {
                 console.log(`SKIP`);
             }
-            if (sinceLastSelection === 5) {
+            if (sinceLastSelection === 10) {
                 if (DEBUG) outputFloorRewards(lastFloorNum);
                 OUT.write(getFloorRewards(lastFloorNum) + "\n");
             }
@@ -585,16 +627,15 @@ function computeMSE(img1, img2) {
     await nameWorker.terminate();
 
     let content = '';
-    for (let i=0; i<=totalLevels; i++) {
-        content += getFloorRewards(i);
+    for (let i=0; i<totalLevels; i++) {
+        content += getFloorRewards(i) + '\n';
     }
     fs.writeFileSync('tower.txt', content);
 })();
 
 function getFloorRewards(floorNum) {
     let floor = tower.floors[floorNum];
-    if (!floor) return;
-    if (floor.type === 'MERCHANT') {
+    if (!floor || floor.type === 'MERCHANT') {
         return `${floorNum}\t\t`;
     } else {
         let content = [];
@@ -602,7 +643,7 @@ function getFloorRewards(floorNum) {
         for (let i=0; i<numRewards; i++) {
             let reward = floor.rewards[i] ?? { name: 'N/A', possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence()};
             let name = reward.name;
-            content.push(`${floorNum}\t${name}\t${reward.enchantments.join('\t')}`);
+            content.push(`${floorNum}\t${name}\t${reward.enchantments.map(e=>e??'').join('\t')}`);
         }
         return content.join('\n');
     }
@@ -1019,7 +1060,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Piercing.png', name: 'Piercing'},
 {fn: 'Poison_Cloud.png', name: 'Poison Cloud', maxMSE: 1000},
 {fn: 'PoisonFocus_(MCD_Enchantment).png', name: 'Poison Focus'},
-{fn: 'Potion_Barrier.png', name: 'Potion Barrier'},
+{fn: 'Potion_Barrier.png', name: 'Potion Barrier', maxMSE: 1500},
 {fn: 'Power.png', name: 'Power'},
 //{fn: 'Prospector.png', name: 'Prospector'},
 {fn: 'Protection.png', name: 'Protection'},
