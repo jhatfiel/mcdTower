@@ -200,7 +200,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     for await (let fn of globSync('videos/*.png').sort()) {
         //if (!['000491', '004440', '011510'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
-        if (parseInt(fn.substring(fn.indexOf('0'))) < 2170) continue;
+        //if (parseInt(fn.substring(fn.indexOf('0'))) < 2170) continue;
 
         if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
         else process.stdout.write(`${fn} `);
@@ -327,6 +327,9 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                 const hierarchy = new cv.Mat();
 
                 // Create the contour image
+                //let contourOffsetX = 600;
+                //let contourOffsetY = 100;
+                //let contourROI = image.roi(new cv.Rect(contourOffsetX, contourOffsetY, 600, 600));
                 cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
                 cv.inRange(hsv, itemHighlightL, itemHighlightH, contourImage);
                 // Convert single-channel contour image to RGBA for Jimp
@@ -344,6 +347,10 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                 if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote contours`); now = Date.now();
 
                 //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
+                //let itemNameOffsetX = 1230;
+                //let itemNameOffsetY = 210;
+                //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
+                //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
 
                 // Find contours
                 cv.findContours(contourImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
@@ -355,9 +362,12 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                     const rect = cv.boundingRect(contour);
                     if (rect.width > 120 && rect.height > 160) {
                         //console.log(`Contour ${i} bounding box:`, rect);
+                        //let col = Math.round(Math.abs(rect.x - 678 + contourOffsetX)/175);
+                        //let row = Math.round(Math.abs(rect.y - 178 + contourOffsetY)/210);
                         let col = Math.round(Math.abs(rect.x - 678)/175);
                         let row = Math.round(Math.abs(rect.y - 178)/210);
                         itemNum = row*3 + col;
+                        //cv.rectangle(imageOutput, new cv.Point(contourOffsetX+rect.x-10, contourOffsetY+rect.y-10), new cv.Point(contourOffsetX+rect.x-10+rect.width+20, contourOffsetY+rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
                         cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
                         break;
                     }
@@ -372,6 +382,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                     // find item name
                     // TODO: we should be using the same grayscale image for item text shouldn't we??
                     let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                        //rectangle: { top: 210-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
                         rectangle: { top: 210, left: 1230, width: 600, height: 45}
                     });
                     if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
@@ -385,6 +396,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                     if (countWhite) {
                         cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
                         let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                            //rectangle: { top: 260-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
                             rectangle: { top: 260, left: 1230, width: 600, height: 45}
                         });
                         cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
@@ -595,6 +607,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                 contourImage.delete();
                 contourArray.delete();
                 hierarchy.delete();
+                //contourROI.delete();
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
@@ -616,7 +629,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
         image.delete();
         imageOutput.delete();
-    };
+    }
 
     itemSelectionL.delete();
     itemSelectionH.delete();
