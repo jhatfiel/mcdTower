@@ -196,9 +196,9 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        //if (!['004632', '004650', '004657', '004670', '004696'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        //if (!['004760'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
-        //if (parseInt(fn.substring(fn.indexOf('0'))) < 4670) continue;
+        //if (parseInt(fn.substring(fn.indexOf('0'))) < 4752) continue;
 
         if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
         else process.stdout.write(`${fn} `);
