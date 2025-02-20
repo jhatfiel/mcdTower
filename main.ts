@@ -181,15 +181,24 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     // item highlight
     const itemHighlightL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [0, 0, 250, 0]); // lower white
     const itemHighlightH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
+    const itemHighlightWidth = 550;
+    const itemHighlightHeight = 500;
+    const contourLow = new cv.Mat(itemHighlightHeight, itemHighlightWidth, HSV_MAT_TYPE, [0, 0, 250, 0]); // lower white
+    const contourHigh = new cv.Mat(itemHighlightHeight, itemHighlightWidth, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
+    const itemNameWidth = 600;
+    const itemNameHeight = 155;
+    const itemNameLow = new cv.Mat(itemNameHeight, itemNameWidth, HSV_MAT_TYPE, [0, 0, 250, 0]); // lower white
+    const itemNameHigh = new cv.Mat(itemNameHeight, itemNameWidth, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
+
     let sinceLastSelection = 0;
     let lastFloorNum = 0;
     let totalLevels = 0;
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        //if (!['000491', '004440', '011510'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        //if (!['004632', '004650', '004657', '004670', '004696'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
-        //if (parseInt(fn.substring(fn.indexOf('0'))) < 3200) continue;
+        //if (parseInt(fn.substring(fn.indexOf('0'))) < 4670) continue;
 
         if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
         else process.stdout.write(`${fn} `);
@@ -303,39 +312,19 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
                         // now, figure out which item is highlighted
                         // TODO: only do this with the item selection section, not the entire image
-                        const hsv = new cv.Mat();
-                        const contourImage = new cv.Mat();
-                        const contourArray = new cv.MatVector();
-                        const hierarchy = new cv.Mat();
-
                         // Create the contour image
-                        //let contourOffsetX = 600;
-                        //let contourOffsetY = 100;
-                        //let contourROI = image.roi(new cv.Rect(contourOffsetX, contourOffsetY, 600, 600));
-                        cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
-                        cv.inRange(hsv, itemHighlightL, itemHighlightH, contourImage);
-                        // Convert single-channel contour image to RGBA for Jimp
-                        const imageRGBA = new Uint8Array(contourImage.rows * contourImage.cols * 4);
-
-                        for (let i = 0; i < contourImage.rows * contourImage.cols; i++) {
-                            const value = contourImage.data[i]; // Grayscale value from the contour image
-                            imageRGBA[i * 4] = value;    // Red channel
-                            imageRGBA[i * 4 + 1] = value; // Green channel
-                            imageRGBA[i * 4 + 2] = value; // Blue channel
-                            imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
-                        }
-                        const imageRGBAJimp = new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)});
-                        //writeGrayscaleImage(contourImage, `${debugImageFN}_contours.png`);
-                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote contours`); now = Date.now();
-
-                        //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
-                        //let itemNameOffsetX = 1230;
-                        //let itemNameOffsetY = 210;
-                        //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
-                        //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
+                        let itemHighlightOffsetX = 660;
+                        let itemHighlightOffsetY = 150;
+                        let itemHighlightROI = image.roi(new cv.Rect(itemHighlightOffsetX, itemHighlightOffsetY, itemHighlightWidth, itemHighlightHeight));
+                        let contourArray = new cv.MatVector();
+                        let hierarchy = new cv.Mat();
+                        cv.cvtColor(itemHighlightROI, itemHighlightROI, cv.COLOR_BGR2HSV);
+                        cv.inRange(itemHighlightROI, contourLow, contourHigh, itemHighlightROI);
+                        writeGrayscaleImage(itemHighlightROI, `${debugImageFN}_itemSelection.png`);
+                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote itemSelection`); now = Date.now();
 
                         // Find contours
-                        cv.findContours(contourImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                        cv.findContours(itemHighlightROI, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
                         // set itemNum based on where the bounding box above was found
                         let itemNum: number = undefined;
 
@@ -344,42 +333,68 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             const rect = cv.boundingRect(contour);
                             if (rect.width > 120 && rect.height > 160) {
                                 //console.log(`Contour ${i} bounding box:`, rect);
-                                //let col = Math.round(Math.abs(rect.x - 678 + contourOffsetX)/175);
-                                //let row = Math.round(Math.abs(rect.y - 178 + contourOffsetY)/210);
-                                let col = Math.round(Math.abs(rect.x - 678)/175);
-                                let row = Math.round(Math.abs(rect.y - 178)/210);
+                                let col = Math.round(Math.abs(rect.x - 678 + itemHighlightOffsetX)/175);
+                                let row = Math.round(Math.abs(rect.y - 178 + itemHighlightOffsetY)/210);
                                 itemNum = row*3 + col;
-                                //cv.rectangle(imageOutput, new cv.Point(contourOffsetX+rect.x-10, contourOffsetY+rect.y-10), new cv.Point(contourOffsetX+rect.x-10+rect.width+20, contourOffsetY+rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
-                                cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
+                                cv.rectangle(imageOutput, new cv.Point(itemHighlightOffsetX+rect.x-10, itemHighlightOffsetY+rect.y-10), new cv.Point(itemHighlightOffsetX+rect.x-10+rect.width+20, itemHighlightOffsetY+rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
+                                //cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
                                 break;
                             }
                         }
-                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
+                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) found highlighted image ${itemNum}`); now = Date.now();
 
                         if (itemNum != undefined && itemNum < 5 && floor.rewards[itemNum]?.settled) {
                             if (!DEBUG) console.log(`${itemNum} ${floor.rewards[itemNum].settled} SETTLED!`);
                             else console.log(`Skipping item - ${floor.rewards[itemNum].settled} SETTLED!`);
                         } else if (itemNum != undefined && itemNum < 5) {
                             if (!DEBUG) process.stdout.write(`${itemNum} `);
+                            let hsv = new cv.Mat();
+
+                            let itemNameOffsetX = 1200;
+                            let itemNameOffsetY = 180;
+                            let itemNameROI = image.roi(new cv.Rect(itemNameOffsetX, itemNameOffsetY, itemNameWidth, itemNameHeight));
+                            cv.cvtColor(itemNameROI, itemNameROI, cv.COLOR_BGR2HSV);
+                            cv.inRange(itemNameROI, itemNameLow, itemNameHigh, itemNameROI);
+                            // Convert single-channel contour image to RGBA for Jimp
+                            const imageRGBA = new Uint8Array(itemNameROI.rows * itemNameROI.cols * 4);
+
+                            for (let i = 0; i < itemNameROI.rows * itemNameROI.cols; i++) {
+                                const value = itemNameROI.data[i]; // Grayscale value from the contour image
+                                imageRGBA[i * 4] = value;    // Red channel
+                                imageRGBA[i * 4 + 1] = value; // Green channel
+                                imageRGBA[i * 4 + 2] = value; // Blue channel
+                                imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
+                            }
+                            const itemNameJimp = new Jimp({width: itemNameROI.cols, height: itemNameROI.rows, data: Buffer.from(imageRGBA)});
+                            //writeGrayscaleImage(itemNameROI, `${debugImageFN}_itemName.png`);
+                            if (DEBUG) itemNameJimp.write(`${debugImageFN}_itemName.png`);
+                            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote itemName`); now = Date.now();
+
+                            //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
+                            //let itemNameOffsetX = 1230;
+                            //let itemNameOffsetY = 210;
+                            //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
+                            //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
+
                             // find item name
                             // TODO: we should be using the same grayscale image for item text shouldn't we??
-                            let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                                //rectangle: { top: 210-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
-                                rectangle: { top: 210, left: 1230, width: 600, height: 45}
+                            let {data: {text: tessName}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
+                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
+                                //rectangle: { top: 210, left: 1230, width: 600, height: 45}
                             });
                             if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
                             if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                             // see if we need the second line
                             let countWhite = 0;
                             for (let offset=0; offset<30; offset++) {
-                                let pixelValue = image.ucharPtr(265, 1230+offset);
+                                let pixelValue = image.ucharPtr(265, 1280+offset);
                                 if (pixelValue[0] > 128) countWhite++;
                             }
                             if (countWhite) {
-                                cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
-                                let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                                    //rectangle: { top: 260-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
-                                    rectangle: { top: 260, left: 1230, width: 600, height: 45}
+                                cv.rectangle(imageOutput, new cv.Point(1280, 265), new cv.Point(1280+30,265), colorGreen, 3, cv.LINE_8, 0);
+                                let {data: {text: line2}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
+                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
+                                    //rectangle: { top: 260, left: 1230, width: 600, height: 45}
                                 });
                                 cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
                                 cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
@@ -486,16 +501,18 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
                             if (!DEBUG) console.log(`- ${enchantmentsFound.join('/')}${item.settled?' SETTLED!':''}`);
+
+                            // Clean up
+                            hsv.delete();
+                            itemNameROI.delete();
                         } else {
                             if (!DEBUG) console.log('No Item Selected');
                         }
 
                         // Clean up
-                        hsv.delete();
-                        contourImage.delete();
                         contourArray.delete();
                         hierarchy.delete();
-                        //contourROI.delete();
+                        itemHighlightROI.delete();
                     }
                 } else {
                     console.log(`Invalid floor: [${text}] (original=[${original}])`)
@@ -527,6 +544,8 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     itemSelectionH.delete();
     itemHighlightL.delete();
     itemHighlightH.delete();
+    contourLow.delete();
+    contourHigh.delete();
 
     await levelWorker.terminate();
     await nameWorker.terminate();
