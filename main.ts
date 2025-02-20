@@ -114,17 +114,6 @@ function computeMSE(img1, img2) {
     cv.reduce(mean, mean, 1, cv.REDUCE_AVG); // Compute mean of squared differences
 
     let mse = mean.data32F.reduce((sum, v)=>sum+=v,0); // Extract MSE value
-    /*
-    let mse = 0;
-    for (let i=0; i<squared.data32F.length/4; i++) {
-        let sum = Math.max(squared.data32F[4*i],
-                  squared.data32F[4*i+1],
-                  squared.data32F[4*i+2],
-                  squared.data32F[4*i+3]);
-        mse += sum;
-    }
-    mse /= squared.data32F.length/4;
-    */
 
     // Clean up
     diff.delete();
@@ -155,7 +144,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     const nameWorker = await createWorker('eng');
     await levelWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
-        tessedit_char_whitelist: '/0123456789B:',
+        tessedit_char_whitelist: 'FLR/0123456789B:',
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
     await nameWorker.setParameters({
@@ -177,7 +166,6 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
         cv.threshold(rgba.get(3), e.bMask, 1, 255, cv.THRESH_BINARY);
 
         rgba = new cv.MatVector();
-        //rgba.push_back(e.mask);
         rgba.push_back(e.bMask);
         rgba.push_back(e.bMask);
         rgba.push_back(e.bMask);
@@ -198,9 +186,10 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     let totalLevels = 0;
 
     for await (let fn of globSync('videos/*.png').sort()) {
+        // SKIP
         //if (!['000491', '004440', '011510'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
-        //if (parseInt(fn.substring(fn.indexOf('0'))) < 2170) continue;
+        //if (parseInt(fn.substring(fn.indexOf('0'))) < 3200) continue;
 
         if (DEBUG) console.log(`${fn} ${'-'.repeat(80)}`);
         else process.stdout.write(`${fn} `);
@@ -241,44 +230,28 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             sinceLastSelection = 0;
 
             // convert image to grayscale and store as jimp image for text recognition of level and next level type
-            let imageLevelOffsetX = 380;
+            let imageLevelOffsetX = 300;
             let imageLevelOffsetY = 70;
             let imageGSJimp = extractImageAsGrayscaleJimp(image, imageLevelOffsetX, imageLevelOffsetY, 500, 45);
             if (DEBUG) imageGSJimp.write(`${debugImageFN}_gs.png`);
-
-            /*
-            // trying to get individual number images for matching?
-            for (let i=0; i<10; i++) {
-                let left=386;
-                let top=75;
-                let w=19;
-                let h=32;
-                const ra = new Uint8Array(w*h*4);
-                for (let y=0; y<h; y++) {
-                    for (let x=0; x<w; x++) {
-                        let j=x+y*w;
-                        ra[j*4] = ra[j*4+1] = ra[j*4+2] = imageGS.data[(top+y)*imageGS.cols + left + x + i*w];
-                        ra[j*4+3] = 255;
-                    }
-                }
-                new Jimp({width: w, height: h, data: Buffer.from(ra)}).write(`${debugImageFN}_level_${i}.png`);
-            }
-            */
 
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) start extract text`); now = Date.now();
 
             // detect level text
             let nextFloorX = 0;
             let nextFloorY = 0;
-            let nextFloorWidth = 120;
+            let nextFloorWidth = 200;
             let nextFloorHeight = 45;
 
+            // TODO: Can we "restart" the levelWorker if it just gets in a bad state (or every X uses)?  Does it get in a bad state? (no, doesn't seem to be a bad state)
+            // TODO: Could we just keep track of the "expected" level and guess at what the correct level should be when the text recognition fails?
+            // TODO: Level # detection seems to be the largest remaining issue (by far) for this to give a 95-98% accurate solution
             let {data: {text: original}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
             });
             original = original.trim().replace(/[\\n\\r]/, '');
             let text = original.replace(/B/g, '6');
-            text = text.replace(/ /g, '').replace(/:.*$/, '');
+            text = text.replace(/ /g, '').replace(/:.*$/, '').replace(/^F?L?0?0?R?\s*/, '');
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
             if (DEBUG) cv.rectangle(imageOutput, new cv.Point(imageLevelOffsetX+nextFloorX, imageLevelOffsetY+nextFloorY), new cv.Point(imageLevelOffsetX+nextFloorX+nextFloorWidth, imageLevelOffsetY+nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
@@ -286,328 +259,247 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
             //console.log(`Detected text: [${text}]`);
             if (text.at(-3) !== '/') {
+                // HACK
                 if (text.at(-3) === '7' && text.length >= 4) text = text.substring(0, text.length-3) + '/' + text.substring(text.length-2);
                 else text = text.substring(0, text.length-2) + '/' + text.substring(text.length-2);
             }
             if (DEBUG) console.log(`fixed text: ${text}`);
-            let match = text.match(/^(\d\d?)\/(\d\d)$/);
+            let match = text.match(/^(\d\d?)\/+(\d\d)$/);
 
             if (match) {
                 now = Date.now();
                 let nextFloorNum = match[1];
+                if (nextFloorNum > 30) {
+                    // HACK
+                    // if it ends in 2, maybe that 2 was just supposed to be part of the slash?
+                    if (nextFloorNum%10 === 2) nextFloorNum = Math.trunc(nextFloorNum/10);
+                }
                 let thisFloorNum = nextFloorNum-1;
-                totalLevels = Math.max(totalLevels, match[2]);
-                let {data: {text}} = await nameWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
-                    rectangle: { top: nextFloorY, left: nextFloorX, width: 400, height: nextFloorHeight}
-                });
-                text = text.toUpperCase();
-
-                let nextLevelType = bestLDArray(text, tower.floors[nextFloorNum]?.type??'', ['BOSS', 'MERCHANT', 'COMBAT'])?.result;
-                let debugFN = `debug/${thisFloorNum}`;
-                if (!DEBUG) process.stdout.write(`${thisFloorNum}/${totalLevels} `);
-
-                if (tower.floors[nextFloorNum] === undefined) {
-                    tower.floors[nextFloorNum] = { num: nextFloorNum, type: nextLevelType, rewards: []};
-                }
-                lastFloorNum = thisFloorNum;
-
-                let floor = tower.floors[thisFloorNum];
-                if (floor === undefined) {
-                    floor = {num: thisFloorNum, type: 'COMBAT', rewards: []};
-                    tower.floors[thisFloorNum] = floor;
-                }
-
-                //console.log(`Found floor: ${nextFloor-1}`);
-
-                // now, figure out which item is highlighted
-                // TODO: only do this with the item selection section, not the entire image
-                const hsv = new cv.Mat();
-                const contourImage = new cv.Mat();
-                const contourArray = new cv.MatVector();
-                const hierarchy = new cv.Mat();
-
-                // Create the contour image
-                //let contourOffsetX = 600;
-                //let contourOffsetY = 100;
-                //let contourROI = image.roi(new cv.Rect(contourOffsetX, contourOffsetY, 600, 600));
-                cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
-                cv.inRange(hsv, itemHighlightL, itemHighlightH, contourImage);
-                // Convert single-channel contour image to RGBA for Jimp
-                const imageRGBA = new Uint8Array(contourImage.rows * contourImage.cols * 4);
-
-                for (let i = 0; i < contourImage.rows * contourImage.cols; i++) {
-                    const value = contourImage.data[i]; // Grayscale value from the contour image
-                    imageRGBA[i * 4] = value;    // Red channel
-                    imageRGBA[i * 4 + 1] = value; // Green channel
-                    imageRGBA[i * 4 + 2] = value; // Blue channel
-                    imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
-                }
-                const imageRGBAJimp = new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)});
-                //writeGrayscaleImage(contourImage, `${debugImageFN}_contours.png`);
-                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote contours`); now = Date.now();
-
-                //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
-                //let itemNameOffsetX = 1230;
-                //let itemNameOffsetY = 210;
-                //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
-                //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
-
-                // Find contours
-                cv.findContours(contourImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
-                // set itemNum based on where the bounding box above was found
-                let itemNum: number = undefined;
-
-                for (let i = 0; i < contourArray.size(); i++) {
-                    const contour = contourArray.get(i);
-                    const rect = cv.boundingRect(contour);
-                    if (rect.width > 120 && rect.height > 160) {
-                        //console.log(`Contour ${i} bounding box:`, rect);
-                        //let col = Math.round(Math.abs(rect.x - 678 + contourOffsetX)/175);
-                        //let row = Math.round(Math.abs(rect.y - 178 + contourOffsetY)/210);
-                        let col = Math.round(Math.abs(rect.x - 678)/175);
-                        let row = Math.round(Math.abs(rect.y - 178)/210);
-                        itemNum = row*3 + col;
-                        //cv.rectangle(imageOutput, new cv.Point(contourOffsetX+rect.x-10, contourOffsetY+rect.y-10), new cv.Point(contourOffsetX+rect.x-10+rect.width+20, contourOffsetY+rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
-                        cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
-                        break;
-                    }
-                }
-                if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
-
-                if (itemNum != undefined && itemNum < 5 && floor.rewards[itemNum]?.settled) {
-                    if (!DEBUG) console.log(`${itemNum} ${floor.rewards[itemNum].settled} SETTLED!`);
-                    else console.log(`Skipping item - ${floor.rewards[itemNum].settled} SETTLED!`);
-                } else if (itemNum != undefined && itemNum < 5) {
-                    if (!DEBUG) process.stdout.write(`${itemNum} `);
-                    // find item name
-                    // TODO: we should be using the same grayscale image for item text shouldn't we??
-                    let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                        //rectangle: { top: 210-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
-                        rectangle: { top: 210, left: 1230, width: 600, height: 45}
+                if (thisFloorNum < 30) {
+                    totalLevels = Math.max(totalLevels, match[2]);
+                    let {data: {text}} = await nameWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
+                        rectangle: { top: nextFloorY, left: nextFloorX, width: 400, height: nextFloorHeight}
                     });
-                    if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
-                    if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
-                    // see if we need the second line
-                    let countWhite = 0;
-                    for (let offset=0; offset<30; offset++) {
-                        let pixelValue = image.ucharPtr(265, 1230+offset);
-                        if (pixelValue[0] > 128) countWhite++;
-                    }
-                    if (countWhite) {
-                        cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
-                        let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
-                            //rectangle: { top: 260-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
-                            rectangle: { top: 260, left: 1230, width: 600, height: 45}
-                        });
-                        cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
-                        cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
-                        tessName += line2;
-                    }
-                    tessName = tessName.toUpperCase().replace(/\n/g, ' ').trim();
+                    text = text.toUpperCase();
 
-                    // use Damerau-Levenshtein for each item sorted by cosine similarity
-                    let {result: itemName, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
-                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
-                    if (DEBUG) console.log(`Found item name: ${itemName} (was ${tessName}) score=${score}`);
-                    if (!DEBUG) process.stdout.write(`${itemName} `);
-                    cv.putText(imageOutput, `[${itemName}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                    let nextLevelType = bestLDArray(text, tower.floors[nextFloorNum]?.type??'', ['BOSS', 'MERCHANT', 'COMBAT'])?.result;
+                    let debugFN = `debug/${thisFloorNum}`;
+                    if (!DEBUG) process.stdout.write(`${thisFloorNum}/${totalLevels} `);
 
-                    //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
-                    let item = floor.rewards[itemNum];
-                    if (item === undefined) {
-                        item = {name: itemName, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()};
-                        floor.rewards[itemNum] = item;
+                    if (tower.floors[nextFloorNum] === undefined) {
+                        tower.floors[nextFloorNum] = { num: nextFloorNum, type: nextLevelType, rewards: []};
                     }
-                    item.possibleNames.set(itemName, (item.possibleNames.get(itemName)??0)+1);
-                    let mostFound = 0;
-                    let iter = item.possibleNames.entries();
-                    while (true) {
-                        let entry = iter.next();
-                        if (entry.done) break;
-                        //console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
-                        if (entry.value[1] > mostFound) {
-                            mostFound = entry.value[1];
-                            itemName = entry.value[0];
+                    lastFloorNum = thisFloorNum;
+
+                    let floor = tower.floors[thisFloorNum];
+                    if (floor === undefined) {
+                        floor = {num: thisFloorNum, type: 'COMBAT', rewards: []};
+                        tower.floors[thisFloorNum] = floor;
+                    }
+                    if (floor.rewards.filter(r => r !== undefined).length === 5 && floor.rewards.every(r => r.settled !== undefined)) {
+                        console.log(`ALL ITEMS SETTLED`);
+                    } else {
+                        //console.log(`Found floor: ${nextFloor-1}`);
+
+                        // now, figure out which item is highlighted
+                        // TODO: only do this with the item selection section, not the entire image
+                        const hsv = new cv.Mat();
+                        const contourImage = new cv.Mat();
+                        const contourArray = new cv.MatVector();
+                        const hierarchy = new cv.Mat();
+
+                        // Create the contour image
+                        //let contourOffsetX = 600;
+                        //let contourOffsetY = 100;
+                        //let contourROI = image.roi(new cv.Rect(contourOffsetX, contourOffsetY, 600, 600));
+                        cv.cvtColor(image, hsv, cv.COLOR_BGR2HSV);
+                        cv.inRange(hsv, itemHighlightL, itemHighlightH, contourImage);
+                        // Convert single-channel contour image to RGBA for Jimp
+                        const imageRGBA = new Uint8Array(contourImage.rows * contourImage.cols * 4);
+
+                        for (let i = 0; i < contourImage.rows * contourImage.cols; i++) {
+                            const value = contourImage.data[i]; // Grayscale value from the contour image
+                            imageRGBA[i * 4] = value;    // Red channel
+                            imageRGBA[i * 4 + 1] = value; // Green channel
+                            imageRGBA[i * 4 + 2] = value; // Blue channel
+                            imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                         }
-                    }
-                    item.name = itemName;
-                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
+                        const imageRGBAJimp = new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)});
+                        //writeGrayscaleImage(contourImage, `${debugImageFN}_contours.png`);
+                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote contours`); now = Date.now();
 
-                    //process.stdout.write(`  0/${enchantments.length} Scanning enchantment images....\r`);
-                    /*
-                    const xOffset = 1250;
-                    const yOffset = 700;
-                    const buffer = 50;
-                    const roi = image.roi(new cv.Rect(xOffset-buffer, yOffset-buffer, 520+2*buffer, 135+2*buffer));
+                        //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
+                        //let itemNameOffsetX = 1230;
+                        //let itemNameOffsetY = 210;
+                        //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
+                        //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
 
-                    let totalMTTime = 0;
-                    let totalScanTime = 0;
-                    let rectArr: any[][] = []; 
-                    enchantments.filter(_=>false).forEach(e => {
-                        let matchResult = new cv.Mat();
-                        let n = Date.now();
-                        try {
-                        cv.matchTemplate(roi, e.image, matchResult, cv.TM_CCORR_NORMED, e.mask);
-                        totalMTTime += Date.now()-n;
-                        } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                        n = Date.now();
-                        for (let y=0; y<matchResult.rows; y++) {
-                            for (let x=0; x<matchResult.cols; x++) {
-                                const score = matchResult.floatAt(y, x);
-                                if (score > 0.92) {
-                                    let xReal = xOffset-buffer+x;
-                                    let yReal = yOffset-buffer+y;
-                                    let slot = 0;
-                                    let row = Math.round(Math.abs(yReal-709)/41);
-                                    let col = xReal-1241;
-                                    if (col > 120) { col -= 185; slot += 3; }
-                                    if (col > 120) { col -= 185; slot += 3; }
-                                    col = Math.round(Math.abs(col)/88);
-                                    if (row === 1) slot += 1;
-                                    else slot += col*2;
-                                    //console.log(`FOUND ${e.name} MATCH! ${xReal},${yReal}/${col},${row} (${slot}) = ${score}`);
-                                    let pointA = new cv.Point(xReal, yReal);
-                                    let pointB = new cv.Point(xReal + e.image.cols, yReal + e.image.rows);
-                                    rectArr.push([pointA, pointB, e.name, slot, score]);
-                                    if (slot < 0 || slot > 5) continue;
-                                
+                        // Find contours
+                        cv.findContours(contourImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
+                        // set itemNum based on where the bounding box above was found
+                        let itemNum: number = undefined;
+
+                        for (let i = 0; i < contourArray.size(); i++) {
+                            const contour = contourArray.get(i);
+                            const rect = cv.boundingRect(contour);
+                            if (rect.width > 120 && rect.height > 160) {
+                                //console.log(`Contour ${i} bounding box:`, rect);
+                                //let col = Math.round(Math.abs(rect.x - 678 + contourOffsetX)/175);
+                                //let row = Math.round(Math.abs(rect.y - 178 + contourOffsetY)/210);
+                                let col = Math.round(Math.abs(rect.x - 678)/175);
+                                let row = Math.round(Math.abs(rect.y - 178)/210);
+                                itemNum = row*3 + col;
+                                //cv.rectangle(imageOutput, new cv.Point(contourOffsetX+rect.x-10, contourOffsetY+rect.y-10), new cv.Point(contourOffsetX+rect.x-10+rect.width+20, contourOffsetY+rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
+                                cv.rectangle(imageOutput, new cv.Point(rect.x-10, rect.y-10), new cv.Point(rect.x-10+rect.width+20, rect.y-10+rect.height+20), colorRed, 2, cv.LINE_8, 0);
+                                break;
+                            }
+                        }
+                        if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) find highlighted image ${itemNum}`); now = Date.now();
+
+                        if (itemNum != undefined && itemNum < 5 && floor.rewards[itemNum]?.settled) {
+                            if (!DEBUG) console.log(`${itemNum} ${floor.rewards[itemNum].settled} SETTLED!`);
+                            else console.log(`Skipping item - ${floor.rewards[itemNum].settled} SETTLED!`);
+                        } else if (itemNum != undefined && itemNum < 5) {
+                            if (!DEBUG) process.stdout.write(`${itemNum} `);
+                            // find item name
+                            // TODO: we should be using the same grayscale image for item text shouldn't we??
+                            let {data: {text: tessName}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                                //rectangle: { top: 210-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
+                                rectangle: { top: 210, left: 1230, width: 600, height: 45}
+                            });
+                            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
+                            if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                            // see if we need the second line
+                            let countWhite = 0;
+                            for (let offset=0; offset<30; offset++) {
+                                let pixelValue = image.ucharPtr(265, 1230+offset);
+                                if (pixelValue[0] > 128) countWhite++;
+                            }
+                            if (countWhite) {
+                                cv.rectangle(imageOutput, new cv.Point(1230, 265), new cv.Point(1230+30,265), colorGreen, 3, cv.LINE_8, 0);
+                                let {data: {text: line2}} = await nameWorker.recognize(await imageRGBAJimp.getBuffer("image/png"), {
+                                    //rectangle: { top: 260-contourOffsetY, left: 1230-contourOffsetX, width: 600, height: 45}
+                                    rectangle: { top: 260, left: 1230, width: 600, height: 45}
+                                });
+                                cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
+                                cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                                tessName += line2;
+                            }
+                            tessName = tessName.toUpperCase().replace(/\n/g, ' ').trim();
+
+                            // use Damerau-Levenshtein for each item sorted by cosine similarity
+                            let {result: itemName, score} = bestLDItem(tessName, floor.rewards[itemNum]?.name??'');
+                            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get item name`); now = Date.now();
+                            if (DEBUG) console.log(`Found item name: ${itemName} (was ${tessName}) score=${score}`);
+                            if (!DEBUG) process.stdout.write(`${itemName} `);
+                            cv.putText(imageOutput, `[${itemName}] (${score})`, new cv.Point(30, 1000), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+
+                            //console.log(`Looking at FLOOR=${thisFloorNum}, ITEMNUM=${itemNum}`);
+                            let item = floor.rewards[itemNum];
+                            if (item === undefined) {
+                                item = {name: itemName, possibleNames: new Map<string, number>(), enchantments: emptyEnchantments(), confidence: emptyConfidence(), seen: new Map<string, number>()};
+                                floor.rewards[itemNum] = item;
+                            }
+                            item.possibleNames.set(itemName, (item.possibleNames.get(itemName)??0)+1);
+                            let mostFound = 0;
+                            let iter = item.possibleNames.entries();
+                            while (true) {
+                                let entry = iter.next();
+                                if (entry.done) break;
+                                //console.log(`name=${entry.value[0]} count=${entry.value[1]}`);
+                                if (entry.value[1] > mostFound) {
+                                    mostFound = entry.value[1];
+                                    itemName = entry.value[0];
+                                }
+                            }
+                            item.name = itemName;
+                            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) get final item name`); now = Date.now();
+
+                            // Check directly at locations and do a short circuiting mean-squared-error for each enchantment image at that particular location
+                            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
+                            let enchantmentsFound = [];
+                            for (let slot=0; slot<E_LOC_ARR.length; slot++) {
+                                let [x,y] = E_LOC_ARR[slot];
+                                const eImg = image.roi(new cv.Rect(x, y, E_SIZE, E_SIZE));
+                                enchantments.forEach(e => {
+                                    let maxMSE = e.maxMSE??3000; // maximum score for match
+                                    let maskedImg = new cv.Mat();
+
+                                    try {
+                                    cv.bitwise_and(eImg, eImg, maskedImg, e.bMask);
+                                    //console.log(`${slot}: ${e.name}`);
+                                    let score = computeMSE(maskedImg, e.image);
+                                    maskedImg.delete();
+                                    if (score > maxMSE) return;
+                                    enchantmentsFound[slot] = e.name;
+
                                     if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
-                                        console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
+                                        if (DEBUG) console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
+                                        enchantmentsFound[slot] = '.@.@.@.@.CONFLICT.@.@.@.@.';
                                     }
-                                    if (score > item.confidence[slot]) {
+                                    if (item.confidence[slot] === 0 || score < item.confidence[slot]) {
                                         item.confidence[slot] = score;
                                         item.enchantments[slot] = e.name;
                                     }
-                                }
+
+                                    if (DEBUG) {
+                                        // highlight the enchantment icon
+                                        const points = [];
+                                        points[0] = new cv.Point(x+E_SIZE_HALF, y+7);
+                                        points[1] = new cv.Point(x+7, y+E_SIZE_HALF);
+                                        points[2] = new cv.Point(x+E_SIZE_HALF, y+E_SIZE-7);
+                                        points[3] = new cv.Point(x+E_SIZE-7, y+E_SIZE_HALF);
+                                        for (let i=0; i<4; i++) {
+                                            cv.line(imageOutput, points[i], points[(i+1)%4], colorRed, 2, cv.LINE_8, 0)
+                                        }
+
+                                        // draw on the image
+                                        let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
+                                        let pt = new cv.Point(x, y);
+                                        if (slot % 3 === 1) { pt.y += 80; }
+                                        else { pt.x += 40; }
+                                        cv.putText(textImage, `[${e.name}] (${score.toFixed(3)})`, pt, cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
+                                        let rot = cv.getRotationMatrix2D(pt, (slot%3 === 1)?-45:45, 1.0);
+                                        cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
+                                        try {
+                                        cv.add(imageOutput, textImage, imageOutput);
+                                        } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                                        textImage.delete();
+                                        rot.delete();
+
+                                        console.log(`SLOT: ${slot}, score=${score}, for ${e.name}`);
+                                    }
+
+                                    } catch (err) { console.trace(cvTranslateError(cv, err)); }
+                                });
+                                eImg.delete();
+                                //if (eName) console.log(`------------ Slot: ${slot} (${x},${y}) = ${eName} score=${minMSE}`);
                             }
+                            if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) MSE enchantment icons (${Date.now()-now}ms)`); now = Date.now();
+
+                            let itemSeen = `${itemName} - ${enchantmentsFound.join('/')}`;
+                            let seenCount = (item.seen.get(itemSeen)??0) + 1;
+                            item.seen.set(itemSeen, seenCount);
+                            if (seenCount === 5) item.settled = itemSeen;
+
+                            writeRGBAImage(imageOutput, `${debugImageFN}.png`);
+                            writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
+
+                            if (!DEBUG) console.log(`- ${enchantmentsFound.join('/')}${item.settled?' SETTLED!':''}`);
+                        } else {
+                            if (!DEBUG) console.log('No Item Selected');
                         }
-                        totalScanTime += Date.now()-n;
-                        
+
                         // Clean up
-                        matchResult.delete();
-                    });
-
-                    // Clean up
-                    roi.delete();
-
-                    rectArr.forEach(r => {
-                        if (item.confidence[r[3]] != r[4]) {
-                            return;
-                        }
-                        let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
-                        cv.rectangle(imageOutput, r[0], r[1], colorRed, 2, cv.LINE_8, 0)
-                        let pt = r[0];
-                        if (r[3] % 3 === 1) { pt.y += 80; }
-                        else { pt.x += 40; }
-                        cv.putText(textImage, `[${r[2]}] (${r[4].toFixed(3)})`, new cv.Point(r[0].x, r[0].y), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
-                        let rot = cv.getRotationMatrix2D(pt, (r[3]%3 === 1)?-45:45, 1.0);
-                        cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
-                        try {
-                        cv.add(imageOutput, textImage, imageOutput);
-                        } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                        textImage.delete();
-                        rot.delete();
-                    });
-                    */
-
-                    /* Check directly at locations and do a short circuiting mean-squared-error for each enchantment image at that particular location
-1241,709
-1285,751
-1329,709
-1426,709
-1470,751
-1514,709
-1611,709
-1655,751
-1699,709
-                    once we find an enchantment that is good, we record that value and the MSE.  For all future checks, once the MSE has gone over that "good" value
-                    the we know this can't be the right enchantment icon.
-
-                    Additionally, we can set a maximum MSE that indicates that if we don't find an enchantment by that point, this slot must be empty.
-                    */
-
-                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
-                    let enchantmentsFound = [];
-                    for (let slot=0; slot<E_LOC_ARR.length; slot++) {
-                        let [x,y] = E_LOC_ARR[slot];
-                        const eImg = image.roi(new cv.Rect(x, y, E_SIZE, E_SIZE));
-                        enchantments.forEach(e => {
-                            let maxMSE = e.maxMSE??3000; // maximum score for match
-                            let maskedImg = new cv.Mat();
-
-                            try {
-                            cv.bitwise_and(eImg, eImg, maskedImg, e.bMask);
-                            //console.log(`${slot}: ${e.name}`);
-                            let score = computeMSE(maskedImg, e.image);
-                            maskedImg.delete();
-                            if (score > maxMSE) return;
-                            enchantmentsFound[slot] = e.name;
-
-                            if (item.enchantments[slot] !== '' && item.enchantments[slot] !== e.name) {
-                                if (DEBUG) console.log(`!!!!!!!!${fn} Conflict on ${slot} ${e.name} (${score}) - was ${item.enchantments[slot]} (${item.confidence[slot]})`);
-                                enchantmentsFound[slot] = '.@.@.@.@.CONFLICT.@.@.@.@.';
-                            }
-                            if (item.confidence[slot] === 0 || score < item.confidence[slot]) {
-                                item.confidence[slot] = score;
-                                item.enchantments[slot] = e.name;
-                            }
-
-                            if (DEBUG) {
-                                // highlight the enchantment icon
-                                const points = [];
-                                points[0] = new cv.Point(x+E_SIZE_HALF, y+7);
-                                points[1] = new cv.Point(x+7, y+E_SIZE_HALF);
-                                points[2] = new cv.Point(x+E_SIZE_HALF, y+E_SIZE-7);
-                                points[3] = new cv.Point(x+E_SIZE-7, y+E_SIZE_HALF);
-                                for (let i=0; i<4; i++) {
-                                    cv.line(imageOutput, points[i], points[(i+1)%4], colorRed, 2, cv.LINE_8, 0)
-                                }
-
-                                // draw on the image
-                                let textImage = new cv.Mat.zeros(imageOutput.rows, imageOutput.cols, imageOutput.type());
-                                let pt = new cv.Point(x, y);
-                                if (slot % 3 === 1) { pt.y += 80; }
-                                else { pt.x += 40; }
-                                cv.putText(textImage, `[${e.name}] (${score.toFixed(3)})`, pt, cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
-                                let rot = cv.getRotationMatrix2D(pt, (slot%3 === 1)?-45:45, 1.0);
-                                cv.warpAffine(textImage, textImage, rot, new cv.Size(imageOutput.cols, imageOutput.rows));
-                                try {
-                                cv.add(imageOutput, textImage, imageOutput);
-                                } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                                textImage.delete();
-                                rot.delete();
-
-                                console.log(`SLOT: ${slot}, score=${score}, for ${e.name}`);
-                            }
-
-                            } catch (err) { console.trace(cvTranslateError(cv, err)); }
-                        });
-                        eImg.delete();
-                        //if (eName) console.log(`------------ Slot: ${slot} (${x},${y}) = ${eName} score=${minMSE}`);
+                        hsv.delete();
+                        contourImage.delete();
+                        contourArray.delete();
+                        hierarchy.delete();
+                        //contourROI.delete();
                     }
-                    if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) MSE enchantment icons (${Date.now()-now}ms)`); now = Date.now();
-
-                    if (!DEBUG) process.stdout.write(`- ${enchantmentsFound.join('/')}`);
-
-                    let itemSeen = `${itemName} - ${enchantmentsFound.join('/')}`;
-                    let seenCount = (item.seen.get(itemSeen)??0) + 1;
-                    item.seen.set(itemSeen, seenCount);
-                    if (seenCount === 5) item.settled = itemSeen;
-
-                    writeRGBAImage(imageOutput, `${debugImageFN}.png`);
-                    writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
-
-                    if (!DEBUG) console.log('');
                 } else {
-                    if (!DEBUG) console.log('No Item Selected');
+                    console.log(`Invalid floor: [${text}] (original=[${original}])`)
                 }
-
-                // Clean up
-                hsv.delete();
-                contourImage.delete();
-                contourArray.delete();
-                hierarchy.delete();
-                //contourROI.delete();
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
@@ -619,7 +511,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                 fs.unlinkSync(fn);
                 console.log(`!!! UNLINK ${fn}`);
             } else {
-                console.log(`SKIP`);
+                console.log(`Not level`);
             }
             if (sinceLastSelection === 10) {
                 if (DEBUG) outputFloorRewards(lastFloorNum);
