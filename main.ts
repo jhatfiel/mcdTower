@@ -147,11 +147,10 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
         tessedit_char_whitelist: 'FOLR/0123456789B:',
         //debug_file: '/dev/null',  // Assigning a debug file disables the console output
-        save_blob_choices: 'T',
-        enable_choice_iterator: 1,
     });
     await nameWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
+        tessedit_char_whitelist: `ABCDEFGHIJKLMNOPQRSTUVWXYZ' `,
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
 
@@ -201,7 +200,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        //if (!['001349', '002817'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 4752) continue;
 
@@ -276,34 +275,14 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             });
             let {data: {text: original, words: levelWords, hocr: levelHOCR, tsv: levelTSV, box: levelBOX}} = result;
 
-            if (false && DEBUG) {
-                // Parse TSV output to extract text alternatives (if available)
-                console.log('words:');
-                console.log(levelWords);
+            if (DEBUG) {
+                //console.log(JSON.stringify(result, null, 2));
                 console.log('tsv:');
                 console.log(levelTSV);
                 console.log('hocr:');
                 console.log(levelHOCR);
                 console.log('box:');
                 console.log(levelBOX);
-                const lines = levelTSV.split("\n").map(line => line.split("\t"));
-                const wordColumnIndex = lines[0].indexOf("text");  // Find column index for words
-                const confIndex = lines[0].indexOf("conf");  // Confidence scores
-
-                let choices = [];
-                for (let i = 1; i < lines.length; i++) {
-                    let word = lines[i][wordColumnIndex];
-                    let confidence = parseFloat(lines[i][confIndex]);
-
-                    if (word && confidence) {
-                        choices.push({ text: word, confidence });
-                    }
-                }
-
-                // Sort choices by confidence
-                choices.sort((a, b) => b.confidence - a.confidence);
-                console.log("Top OCR Predictions:");
-                console.log(choices); // Display top choices with confidence scores
             }
 
             original = original.trim().replace(/[\\n\\r]/, '');
@@ -427,10 +406,23 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote itemName`); now = Date.now();
 
                             // find item name
-                            let {data: {text: tessName}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
+                            let result = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
+                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45},
+                                rotateAuto: false
+                            }, {
+                                text: true,
+                                blocks: true,
+                                layoutBlocks: true,
+                                hocr: true,
+                                tsv: true,
+                                box: true,
+                                unlv: true,
+                                osd: true,
+                                debug: true
                             });
-                            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
+                            // console.log(JSON.stringify(result, null, 2));
+                            let {data: {text: tessName}} = result;
+                            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+itemNameWidth, 210+45), colorRed, 2, cv.LINE_8, 0);
                             if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                             // see if we need the second line
                             let countWhite = 0;
@@ -441,9 +433,9 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             if (countWhite) {
                                 cv.rectangle(imageOutput, new cv.Point(1280, 265), new cv.Point(1280+30,265), colorGreen, 3, cv.LINE_8, 0);
                                 let {data: {text: line2}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
+                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45}
                                 });
-                                cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
+                                cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+itemNameWidth, 260+45), colorRed, 2, cv.LINE_8, 0);
                                 cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                                 tessName += line2;
                             }
@@ -576,7 +568,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
-                console.log(JSON.stringify(result, null, 2));
+                //console.log(JSON.stringify(result, null, 2));
             }
             imageOutput.delete();
         } else {
@@ -897,6 +889,8 @@ const OCR_TRANSPOSE = {
     '5S': 0.4,
     'Z2': 0.5,
     '2Z': 0.5,
+    'LC': 0.2,
+    'CL': 0.2,
     'LI': 0.2,
     'IL': 0.2,
     'MN': 0.3,
@@ -907,6 +901,8 @@ const OCR_TRANSPOSE = {
     'PR': 0.5,
     'HN': 0.4,
     'NH': 0.4,
+    'HM': 0.4,
+    'MH': 0.4,
     'HA': 0.4,
     'AH': 0.4,
     'SC': 0.4,
@@ -957,6 +953,7 @@ function bestLDItem(s: string, expected: string): {result: string, score: number
 
 function bestLDArray(s: string, expected: string, arr: string[]): {result: string, score: number} {
     let score = LevenshteinDistance(s, expected.toUpperCase(), Infinity);
+    if (expected === '') score = Infinity;
     let result = expected;
     for (let item of arr.filter(item => item !== expected.toUpperCase())) {
         let t = item.toUpperCase();
@@ -988,7 +985,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Beast_Surge_(MCD_Enchantment).png', name: 'Beast Surge'},
 {fn: 'Bonus_Shot.png', name: 'Bonus Shot'},
 {fn: 'Burning.png', name: 'Burning'},
-{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring'},
+{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring', offsetX: -1, offsetY: 0},
 {fn: 'BusyBee.png', name: 'Busy Bee'},
 {fn: 'Chain_Reaction.png', name: 'Chain Reaction'},
 {fn: 'Chains.png', name: 'Chains'},
