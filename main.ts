@@ -200,7 +200,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        //if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 4752) continue;
 
@@ -913,6 +913,10 @@ const OCR_TRANSPOSE = {
     'OQ': 0.2,
     '[C': 0.2,
     'C[': 0.2,
+    'EB': 0.4,
+    'BE': 0.4,
+    'EW': 0.4,
+    'WE': 0.4,
 }
 
 function LevenshteinDistance(s: string, t: string, best: number): number {
