@@ -8,8 +8,6 @@ const Tesseract = require('tesseract.js');
 
 const OUT = fs.createWriteStream('_tower.txt');
 
-const WIDTH = 1920;
-const HEIGHT = 1080;
 const HSV_MAT_TYPE = 16;
 const RGB_MAT_TYPE = 24;
 const E_SIZE = 95;
@@ -31,6 +29,8 @@ interface Enchantment {
     fn: string
     name: string
     maxMSE?: number
+    offsetX?: number
+    offsetY?: number
     meleeName?: string
     rangedName?: string
     armorName?: string
@@ -126,6 +126,7 @@ function computeMSE(img1, img2) {
 function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     let gs = img.roi(new cv.Rect(x, y, w, h));
     cv.cvtColor(gs, gs, cv.COLOR_BGRA2GRAY);
+    cv.bitwise_not(gs, gs);
     cv.threshold(gs, gs, 128, 255, cv.THRESH_BINARY);
     const rgba = new Uint8Array(gs.rows * gs.cols * 4);
     for (let i=0; i<gs.rows*gs.cols; i++) {
@@ -144,11 +145,12 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     const nameWorker = await createWorker('eng');
     await levelWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
-        tessedit_char_whitelist: 'FLR/0123456789B:',
-        debug_file: '/dev/null',  // Assigning a debug file disables the console output
+        tessedit_char_whitelist: 'FOLR/0123456789B:',
+        //debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
     await nameWorker.setParameters({
         tessedit_pageseg_mode: Tesseract.PSM.SINGLE_LINE, // Single line
+        tessedit_char_whitelist: `ABCDEFGHIJKLMNOPQRSTUVWXYZ' `,
         debug_file: '/dev/null',  // Assigning a debug file disables the console output
     });
 
@@ -157,6 +159,8 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     for (let e of enchantments) {
         const src = (await Jimp.read(`./images/${e.fn}`)).resize({w: E_SIZE, h: E_SIZE, mode: ResizeStrategy.HERMITE});
         e.image = cv.matFromImageData(src.bitmap);
+        e.offsetX = e.offsetX??0;
+        e.offsetY = e.offsetY??0;
 
         // Extract alpha channel as mask
         let rgba = new cv.MatVector();
@@ -176,11 +180,11 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
     console.log(`done! (${Math.round((Date.now()-now)/1000)}s)`);
 
     // item selection screen
-    const itemSelectionL = new cv.Mat(HEIGHT, WIDTH, RGB_MAT_TYPE, [50, 120, 60, 0]); // lower green
-    const itemSelectionH = new cv.Mat(HEIGHT, WIDTH, RGB_MAT_TYPE, [60, 140, 70, 255]); // upper green
+    const itemSelectionW = 700;
+    const itemSelectionH = 200;
+    const itemSelectionLow = new cv.Mat(itemSelectionH, itemSelectionW, RGB_MAT_TYPE, [50, 120, 60, 0]); // lower green
+    const itemSelectionHigh = new cv.Mat(itemSelectionH, itemSelectionW, RGB_MAT_TYPE, [60, 140, 70, 255]); // upper green
     // item highlight
-    const itemHighlightL = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [0, 0, 250, 0]); // lower white
-    const itemHighlightH = new cv.Mat(HEIGHT, WIDTH, HSV_MAT_TYPE, [200, 20, 255, 0]); // upper white
     const itemHighlightWidth = 550;
     const itemHighlightHeight = 500;
     const contourLow = new cv.Mat(itemHighlightHeight, itemHighlightWidth, HSV_MAT_TYPE, [0, 0, 250, 0]); // lower white
@@ -196,7 +200,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        //if (!['004760'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 4752) continue;
 
@@ -210,21 +214,19 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
         const jimpSrc = await Jimp.read(fn);
         if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Image Loaded into jimp`); now = Date.now();
         const image = cv.matFromImageData(jimpSrc.bitmap);
-        const imageOutput = cv.matFromImageData(jimpSrc.bitmap);
         let isSelectionScreen = false;
 
-        const itemSelectImage = new cv.Mat();
-
         // first, see if this is an item selection screen
+        const itemSelectImage = image.roi(new cv.Rect(1220, 850, itemSelectionW, itemSelectionH));
         let contourArray = new cv.MatVector();
         let hierarchy = new cv.Mat();
-        cv.inRange(image, itemSelectionL, itemSelectionH, itemSelectImage);
+        cv.inRange(itemSelectImage, itemSelectionLow, itemSelectionHigh, itemSelectImage);
         cv.findContours(itemSelectImage, contourArray, hierarchy, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE);
 
         for (let i=0; i<contourArray.size(); i++) {
             const contour = contourArray.get(i);
             const rect = cv.boundingRect(contour);
-            if (rect.x > 1200 && rect.width > 500 && rect.height > 100) {
+            if (rect.width > 500 && rect.height > 100) {
                 //console.log(`Found item selection screen!`, rect);
                 isSelectionScreen = true;
                 break;
@@ -235,6 +237,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
         hierarchy.delete();
 
         if (isSelectionScreen) {
+            const imageOutput = cv.matFromImageData(jimpSrc.bitmap);
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Got item selection`); now = Date.now();
             sinceLastSelection = 0;
 
@@ -255,12 +258,36 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             // TODO: Can we "restart" the levelWorker if it just gets in a bad state (or every X uses)?  Does it get in a bad state? (no, doesn't seem to be a bad state)
             // TODO: Could we just keep track of the "expected" level and guess at what the correct level should be when the text recognition fails?
             // TODO: Level # detection seems to be the largest remaining issue (by far) for this to give a 95-98% accurate solution
-            let {data: {text: original}} = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
-                rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight}
+            // Recognize text and get TSV data
+            let result = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
+                rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight},
+                rotateAuto: false
+            }, {
+                text: true,
+                blocks: true,
+                layoutBlocks: true,
+                hocr: true,
+                tsv: true,
+                box: true,
+                unlv: true,
+                osd: true,
+                debug: true
             });
+            let {data: {text: original, words: levelWords, hocr: levelHOCR, tsv: levelTSV, box: levelBOX}} = result;
+
+            if (DEBUG) {
+                //console.log(JSON.stringify(result, null, 2));
+                console.log('tsv:');
+                console.log(levelTSV);
+                console.log('hocr:');
+                console.log(levelHOCR);
+                console.log('box:');
+                console.log(levelBOX);
+            }
+
             original = original.trim().replace(/[\\n\\r]/, '');
             let text = original.replace(/B/g, '6');
-            text = text.replace(/ /g, '').replace(/:.*$/, '').replace(/^F?L?0?0?R?\s*/, '');
+            text = text.replace(/ /g, '').replace(/:.*$/, '').replace(/^F?L?[0O]?[0O]?R?\s*/, '');
             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) extract text from nextFloor area [${text}]`); now = Date.now();
 
             if (DEBUG) cv.rectangle(imageOutput, new cv.Point(imageLevelOffsetX+nextFloorX, imageLevelOffsetY+nextFloorY), new cv.Point(imageLevelOffsetX+nextFloorX+nextFloorWidth, imageLevelOffsetY+nextFloorY+nextFloorHeight), colorRed, 2, cv.LINE_8, 0);
@@ -344,8 +371,16 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                         if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) found highlighted image ${itemNum}`); now = Date.now();
 
                         if (itemNum != undefined && itemNum < 5 && floor.rewards[itemNum]?.settled) {
-                            if (!DEBUG) console.log(`${itemNum} ${floor.rewards[itemNum].settled} SETTLED!`);
-                            else console.log(`Skipping item - ${floor.rewards[itemNum].settled} SETTLED!`);
+                            let item = floor.rewards[itemNum];
+                            if (!DEBUG) console.log(`${itemNum} ${item.settled} SETTLED!`);
+                            else console.log(`Skipping item - ${item.settled} SETTLED!`);
+                            if (item.enchantments[1] && (!item.enchantments[0] || !item.enchantments[2])) console.log(`!!!! 1 set without 0 or 2`);
+                            if (item.enchantments[4] && (!item.enchantments[3] || !item.enchantments[5])) console.log(`!!!! 4 set without 3 or 5`);
+                            if (item.enchantments[7] && (!item.enchantments[6] || !item.enchantments[8])) console.log(`!!!! 7 set without 6 or 8`);
+
+                            if ((item.enchantments[0] && !item.enchantments[2]) || (!item.enchantments[0] && item.enchantments[2])) console.log(`!!!! Missing 0/2`);
+                            if ((item.enchantments[3] && !item.enchantments[5]) || (!item.enchantments[3] && item.enchantments[5])) console.log(`!!!! Missing 3/5`);
+                            if ((item.enchantments[6] && !item.enchantments[8]) || (!item.enchantments[6] && item.enchantments[8])) console.log(`!!!! Missing 6/8`);
                         } else if (itemNum != undefined && itemNum < 5) {
                             if (!DEBUG) process.stdout.write(`${itemNum} `);
                             let hsv = new cv.Mat();
@@ -355,6 +390,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             let itemNameROI = image.roi(new cv.Rect(itemNameOffsetX, itemNameOffsetY, itemNameWidth, itemNameHeight));
                             cv.cvtColor(itemNameROI, itemNameROI, cv.COLOR_BGR2HSV);
                             cv.inRange(itemNameROI, itemNameLow, itemNameHigh, itemNameROI);
+                            cv.bitwise_not(itemNameROI, itemNameROI);
                             // Convert single-channel contour image to RGBA for Jimp
                             const imageRGBA = new Uint8Array(itemNameROI.rows * itemNameROI.cols * 4);
 
@@ -366,23 +402,27 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                                 imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
                             }
                             const itemNameJimp = new Jimp({width: itemNameROI.cols, height: itemNameROI.rows, data: Buffer.from(imageRGBA)});
-                            //writeGrayscaleImage(itemNameROI, `${debugImageFN}_itemName.png`);
                             if (DEBUG) itemNameJimp.write(`${debugImageFN}_itemName.png`);
                             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote itemName`); now = Date.now();
 
-                            //new Jimp({width: contourImage.cols, height: contourImage.rows, data: Buffer.from(imageRGBA)}).write('contourImage.png');
-                            //let itemNameOffsetX = 1230;
-                            //let itemNameOffsetY = 210;
-                            //let itemNameGSJimp = extractImageAsGrayscaleJimp(image, itemNameOffsetX, itemNameOffsetY, 600, 95);
-                            //if (DEBUG) itemNameGSJimp.write(`${debugImageFN}_itemNameArea.png`);
-
                             // find item name
-                            // TODO: we should be using the same grayscale image for item text shouldn't we??
-                            let {data: {text: tessName}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
-                                //rectangle: { top: 210, left: 1230, width: 600, height: 45}
+                            let result = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
+                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45},
+                                rotateAuto: false
+                            }, {
+                                text: true,
+                                blocks: true,
+                                layoutBlocks: true,
+                                hocr: true,
+                                tsv: true,
+                                box: true,
+                                unlv: true,
+                                osd: true,
+                                debug: true
                             });
-                            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+600, 210+45), colorRed, 2, cv.LINE_8, 0);
+                            // console.log(JSON.stringify(result, null, 2));
+                            let {data: {text: tessName}} = result;
+                            if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+itemNameWidth, 210+45), colorRed, 2, cv.LINE_8, 0);
                             if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                             // see if we need the second line
                             let countWhite = 0;
@@ -393,10 +433,9 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             if (countWhite) {
                                 cv.rectangle(imageOutput, new cv.Point(1280, 265), new cv.Point(1280+30,265), colorGreen, 3, cv.LINE_8, 0);
                                 let {data: {text: line2}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: 500, height: 45}
-                                    //rectangle: { top: 260, left: 1230, width: 600, height: 45}
+                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45}
                                 });
-                                cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+600, 260+45), colorRed, 2, cv.LINE_8, 0);
+                                cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+itemNameWidth, 260+45), colorRed, 2, cv.LINE_8, 0);
                                 cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                                 tessName += line2;
                             }
@@ -432,12 +471,18 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
                             // Check directly at locations and do a short circuiting mean-squared-error for each enchantment image at that particular location
                             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) Prepared to scan for enchantments`); now = Date.now();
-                            let enchantmentsFound = [];
+                            let enchantmentsFound: string[] = [];
                             for (let slot=0; slot<E_LOC_ARR.length; slot++) {
                                 let [x,y] = E_LOC_ARR[slot];
-                                const eImg = image.roi(new cv.Rect(x, y, E_SIZE, E_SIZE));
+                                const imgCache = new Map<string, any>();
                                 enchantments.forEach(e => {
                                     let maxMSE = e.maxMSE??3000; // maximum score for match
+                                    let key = `${e.offsetX},${e.offsetY}`;
+                                    let eImg = imgCache.get(key);
+                                    if (eImg === undefined) {
+                                        eImg = image.roi(new cv.Rect(x+e.offsetX, y+e.offsetY, E_SIZE, E_SIZE));
+                                        imgCache.set(key, eImg);
+                                    }
                                     let maskedImg = new cv.Mat();
 
                                     try {
@@ -487,7 +532,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
                                     } catch (err) { console.trace(cvTranslateError(cv, err)); }
                                 });
-                                eImg.delete();
+                                [...imgCache.values()].forEach(eImg => eImg.delete());
                                 //if (eName) console.log(`------------ Slot: ${slot} (${x},${y}) = ${eName} score=${minMSE}`);
                             }
                             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) MSE enchantment icons (${Date.now()-now}ms)`); now = Date.now();
@@ -495,7 +540,10 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             let itemSeen = `${itemName} - ${enchantmentsFound.join('/')}`;
                             let seenCount = (item.seen.get(itemSeen)??0) + 1;
                             item.seen.set(itemSeen, seenCount);
-                            if (seenCount === 5) item.settled = itemSeen;
+                            if (seenCount === 5) {
+                                item.settled = itemSeen;
+                                item.enchantments = enchantmentsFound;
+                            }
 
                             writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                             writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
@@ -520,7 +568,9 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             } else {
                 writeRGBAImage(imageOutput, `${debugImageFN}.png`);
                 console.log(`!!! UNMATCHED level text: [${text}] (original=[${original}])`);
+                //console.log(JSON.stringify(result, null, 2));
             }
+            imageOutput.delete();
         } else {
             sinceLastSelection++;
             if (sinceLastSelection > 10) {
@@ -537,13 +587,10 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
         }
 
         image.delete();
-        imageOutput.delete();
     }
 
-    itemSelectionL.delete();
-    itemSelectionH.delete();
-    itemHighlightL.delete();
-    itemHighlightH.delete();
+    itemSelectionLow.delete();
+    itemSelectionHigh.delete();
     contourLow.delete();
     contourHigh.delete();
 
@@ -680,7 +727,7 @@ const items: string[] = [
 'Boots of Swiftness',
 'Buzzy Nest',
 'Corrupted Beacon',
-'Corrupted Pumpkin',
+//'Corrupted Pumpkin',
 'Corrupted Seeds',
 'Death Cap Mushroom',
 'Enchanted Grass',
@@ -842,6 +889,8 @@ const OCR_TRANSPOSE = {
     '5S': 0.4,
     'Z2': 0.5,
     '2Z': 0.5,
+    'LC': 0.2,
+    'CL': 0.2,
     'LI': 0.2,
     'IL': 0.2,
     'MN': 0.3,
@@ -852,6 +901,8 @@ const OCR_TRANSPOSE = {
     'PR': 0.5,
     'HN': 0.4,
     'NH': 0.4,
+    'HM': 0.4,
+    'MH': 0.4,
     'HA': 0.4,
     'AH': 0.4,
     'SC': 0.4,
@@ -862,6 +913,10 @@ const OCR_TRANSPOSE = {
     'OQ': 0.2,
     '[C': 0.2,
     'C[': 0.2,
+    'EB': 0.4,
+    'BE': 0.4,
+    'EW': 0.4,
+    'WE': 0.4,
 }
 
 function LevenshteinDistance(s: string, t: string, best: number): number {
@@ -902,6 +957,7 @@ function bestLDItem(s: string, expected: string): {result: string, score: number
 
 function bestLDArray(s: string, expected: string, arr: string[]): {result: string, score: number} {
     let score = LevenshteinDistance(s, expected.toUpperCase(), Infinity);
+    if (expected === '') score = Infinity;
     let result = expected;
     for (let item of arr.filter(item => item !== expected.toUpperCase())) {
         let t = item.toUpperCase();
@@ -924,7 +980,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Accelerate.png', name: 'Accelerate'},
 {fn: 'Acrobat.png', name: 'Acrobat'},
 {fn: 'Ambush.png', name: 'Ambush'},
-{fn: 'Anima_Conduit.png', name: 'Anima Conduit'},
+{fn: 'Anima_Conduit.png', name: 'Anima Conduit', offsetX: -1, offsetY: 0, maxMSE: 4000},
 {fn: 'Artifact_Charge_(MCD_Enchantment).png', name: 'Artifact Charge'},
 {fn: 'Artifact_Synergy_(MCD_Enchantment).png', name: 'Artifact Synergy'},
 {fn: 'Bag_of_Souls.png', name: 'Bag of Souls'},
@@ -933,7 +989,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Beast_Surge_(MCD_Enchantment).png', name: 'Beast Surge'},
 {fn: 'Bonus_Shot.png', name: 'Bonus Shot'},
 {fn: 'Burning.png', name: 'Burning'},
-{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring'},
+{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring', offsetX: -1, offsetY: 0},
 {fn: 'BusyBee.png', name: 'Busy Bee'},
 {fn: 'Chain_Reaction.png', name: 'Chain Reaction'},
 {fn: 'Chains.png', name: 'Chains'},

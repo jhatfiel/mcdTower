@@ -1,0 +1,136 @@
+0	Sword									
+0	Mercenary Armor									
+0	Bow									
+1	Evocation Robe	Beast Boss	Fire Trail	Beast Surge	Electrified	Shadow Blast	Swiftfooted			
+1	Great Hammer	Illager's Bane		Leeching	Dynamo		Echo			
+1	Dual Crossbows	Infinity		Multishot	Piercing		Rapid Fire			
+1	Shulker Armor	Shadow Blast		Recycler	Rush		Beast Burst			
+1	Mystery Armor	Burning		Snowball	Speed Synergy		Beast Surge			
+2	Entertainer's Garb	Fire Trail		Surprise Gift	Swiftfooted		Beast Surge			
+2	Sword	Fire Aspect		Echo	Guarding Strike	Sharpness	Dynamo			
+2	Power Bow	Infinity		Dipping Poison	Multishot		Burst Bowstring			
+2	Twisting Vine Bow	Power		Cooldown Shot	Dynamo		Weakening			
+2	Shadow Shifter									
+3	Thief Armor	Tumblebee	Snowball	Cowardice	Electrified		Thorns			
+3	Soul Knife	Leeching		Committed	Anima Conduit		Stunning			
+3	Soul Crossbow	Radiance	Multishot	Soul Siphon	Weakening		Punch			
+3	Daggers	Sharpness	Chains	Dynamo	Pain Cycle	Unchanting	Artifact Synergy			
+3	Heartstealer	Echo	Busy Bee	Freezing	Ambush		Rampaging			
+4	Blast Fungus									
+4	Nameless Blade	Leeching		Echo	Rampaging		Pain Cycle			
+4	Snow Bow	Supercharge		Artifact Charge	Infinity	Smiting	Accelerate			
+4	Baby Crossbows	Power		Rapid Fire	Committed		Accelerate			
+4	Hunting Bow	Unchanting		Supercharge	Growing		Multishot			
+5	Snow Armor	Recycler	Cool Down	Frenzied	Shadow Blast	Shadow Surge	Fire Trail	Beast Surge	Explorer	Snowball
+5	Axe	Weakening		Leeching	Thundering		Smiting	Stunning	Committed	Rampaging
+5	Soul Bow	Rapid Fire			Artifact Charge		Infinity			
+5	Backstabber	Echo	Poison Cloud	Chains	Dynamo	Illager's Bane	Pain Cycle			
+5	Tempest Knife	Busy Bee		Weakening	Leeching		Ambush			
+6	Ghostly Armor	Thorns		Food Reserves	Deflect		Burning			
+6	Claymore	Busy Bee		Sharpness	Rampaging		Ambush			
+6	Light Feather									
+6	Satchel of Snacks									
+6	Piglin Armor	Electrified	Life Boost	Snowball	Recycler		Acrobat	Potion Barrier	Deflect	Tumblebee
+7	N/A									
+7	N/A									
+7	N/A									
+7	N/A									
+7	N/A									
+8	Rapid Crossbow	Radiance		Rapid Fire	Committed		Fire Aspect	Multishot		Power
+8	Battlestaff	Illager's Bane		Echo	Rampaging		Looting	Committed		Leeching
+8	Void Bow	Committed		Supercharge	Accelerate		Roll Charge	Fuse Shot		Wild Rage
+8	Torment Quiver									
+8	Harvester									
+9		
+10	Golem Kit									
+10	Spear	Looting	Stunning	Freezing	Committed	Smiting	Weakening			
+10	Wind Bow			Radiance	Accelerate		Unchanting	Fuse Shot		Ricochet
+10	Harpoon Quiver									
+10	Scale Mail	Shadow Blast		Acrobat	Life Boost		Burning	Frenzied	Explorer	Shadow Surge
+11	Power Bow	Multishot		Weakening	Poison Cloud		Piercing	Overcharge		Supercharge
+11	Mace	Thundering		Stunning	Void Strike		Radiance			
+11	Shadow Crossbow	Wild Rage		Fire Aspect	Void Strike		Tempo Theft			
+11	Bubble Bow	Looting	Supercharge	Bonus Shot	Piercing		Artifact Charge	Levitation Shot		Critical Hit
+11	Root Rot Armor	Shadow Surge		Life Boost	Cowardice		Electrified	Acrobat		Final Shout
+12	Void Quiver									
+12	Anchor	Fire Aspect	Ambush	Guarding Strike	Freezing		Smiting	Refreshment		Void Strike
+12	Shortbow			Bonus Shot	Rapid Fire		Levitation Shot			
+12	Evocation Robe	Tumblebee		Electrified	Snowball		Frenzied	Gravity Pulse		Lightning Focus
+12	Broken Sawblade	Fire Aspect		Freezing	Leeching		Critical Hit			
+13	Scatter Mines									
+13	Claymore	Sharpness		Weakening	Void Strike		Exploding			
+13	Longbow	Rapid Fire		Piercing	Critical Hit		Shock Web			
+13	Piglin Armor	Shadow Blast	Cool Down	Deflect	Reckless	Protection	Gravity Pulse			
+13	Sickles	Poison Cloud	Fire Aspect	Sharpness	Weakening		Guarding Strike	Radiance	Sharpness	Void Strike
+14	Wonderful Wheat									
+14	Gauntlets	Unchanting		Freezing	Chains		Guarding Strike	Void Strike		Gravity
+14	Soul Bow	Infinity		Poison Cloud	Fire Aspect		Smiting	Levitation Shot		Tempo Theft
+14	Champion's Armor	Recycler		Acrobat	Deflect	Shadow Surge	Snowball	Lightning Focus		Soul Focus
+14	Flaming Quiver									
+15	Scatter Crossbow	Bonus Shot		Fire Aspect	Piercing		Unchanting	Exploding	Gravity	Chain Reaction
+15	Battlestaff	Weakening		Looting	Chains		Busy Bee	Exploding	Radiance	Swirling
+15	Twisting Vine Bow	Ricochet		Fire Aspect	Rapid Fire		Burst Bowstring	Overcharge	Void Strike	Wild Rage
+15	Battle Robe	Shadow Surge		Shadow Blast	Gravity Pulse	Final Shout	Reckless			
+15	Heavy Crossbow	Looting		Fuse Shot	Levitation Shot		Critical Hit			
+16	Reinforced Mail	Swiftfooted	Potion Barrier	Surprise Gift	Acrobat		Beast Surge	Chilling		Reckless
+16	Whip	Artifact Synergy		Guarding Strike	Dynamo		Stunning	Committed		Void Strike
+16	Dual Crossbows	Rapid Fire		Unchanting	Fuse Shot		Weakening	Multishot		Gravity
+16	Shulker Armor	Frenzied		Electrified	Swiftfooted		Beast Burst	Thorns		Gravity Pulse
+16	Backstabber	Freezing		Echo	Busy Bee		Stunning	Gravity		Refreshment
+17	Soul Knife	Freezing	Weakening	Thundering	Poison Cloud		Ambush	Guarding Strike	Anima Conduit	Critical Hit
+17	Rapier	Unchanting		Pain Cycle	Ambush	Radiance	Exploding	Shockwave		Chains
+17	Soul Crossbow	Accelerate		Fire Aspect	Rapid Fire		Refreshment	Critical Hit		Exploding
+17	Light Feather									
+17	Corrupted Beacon									
+18		
+19	Katana	Leeching		Unchanting	Swirling		Void Strike	Critical Hit		Radiance
+19	Daggers	Rampaging	Fire Aspect	Looting	Void Strike		Refreshment	Radiance		Gravity
+19	Crossbow	Looting		Smiting	Fire Aspect		Infinity	Unchanting		Critical Hit
+19	Obsidian Claymore	Pain Cycle		Illager's Bane	Radiance		Shockwave	Swirling		Void Strike
+19	Wind Horn									
+20	Plate Armor	Shadow Blast		Swiftfooted	Surprise Gift		Final Shout	Lightning Focus		Shadow Surge
+20	Axe	Poison Cloud	Fire Aspect	Leeching	Exploding		Radiance	Shockwave	Gravity	Refreshment
+20	Shortbow	Growing		Dynamo	Artifact Charge		Radiance	Levitation Shot		Multishot
+20	Harvester									
+20	Beenest Armor	Beast Burst	Fire Trail	Frenzied	Beast Boss	Burning	Tumblebee	Food Reserves	Health Synergy	Protection
+21	Void Touched Blades	Smiting		Freezing	Poison Cloud		Stunning	Shockwave		Unchanting
+21	Pickaxe	Fire Aspect		Committed	Unchanting		Sharpness	Thundering		Gravity
+21	Hunting Bow			Cooldown Shot	Tempo Theft		Supercharge	Fire Aspect		Chain Reaction
+21	Boneclub	Ambush		Chains	Swirling		Gravity	Critical Hit		Radiance
+21	Boots of Swiftness									
+22	Axe	Rampaging		Sharpness	Gravity	Radiance	Refreshment	Critical Hit		Void Strike
+22	Golem Kit									
+22	Scale Mail	Shadow Surge		Beast Boss	Cowardice		Life Boost	Poison Focus		Explorer
+22	Heavy Crossbow	Accelerate	Power	Fire Aspect	Fire Aspect	Dynamo	Multishot	Smiting	Punch	Gravity
+22	Soul Healer									
+23	Ghost Cloak									
+23	Soul Scythe	Poison Cloud		Enigma Resonator	Echo		Busy Bee	Radiance		Artifact Synergy
+23	Wind Bow	Power		Smiting	Weakening		Growing	Exploding		Unchanting
+23	Tome of Duplication									
+23	Champion's Armor	Frenzied		Beast Burst	Reckless		Lightning Focus	Multi-Roll		Poison Focus
+24	Harpoon Crossbow	Fire Aspect		Bonus Shot	Wild Rage		Infinity	Punch		Exploding
+24	Double Axe	Looting		Weakening	Guarding Strike		Smiting	Stunning		Exploding
+24	Power Bow	Committed		Gravity	Wild Rage		Piercing	Void Strike		Levitation Shot
+24	Lightning Rod									
+24	Wonderful Wheat									
+25	Soul Knife	Stunning	Poison Cloud	Echo	Dynamo	Looting	Guarding Strike	Void Strike	Ambush	Soul Siphon
+25	Nameless Blade	Swirling		Refreshment	Radiance		Shockwave	Radiance		Critical Hit
+25	Soul Hunter Crossbow	Chain Reaction		Void Strike	Gravity		Refreshment	Exploding		Critical Hit
+25	Fishing Rod									
+25	Gong of Weakening									
+26	Tempest Knife	Critical Hit		Swirling	Exploding		Shockwave	Radiance		Refreshment
+26	Cutlass	Swirling		Exploding	Gravity		Void Strike	Radiance		Shockwave
+26	Burst Crossbow	Wild Rage	Refreshment	Growing	Gravity		Radiance	Exploding		Weakening
+26	Spelunker Armor	Final Shout		Soul Focus	Protection		Poison Focus	Multi-Roll		Chilling
+26	Exploding Crossbow	Rapid Fire		Gravity	Critical Hit		Dynamo	Exploding		Poison Cloud
+27	Great Hammer	Guarding Strike		Committed	Echo		Weakening	Pain Cycle		Refreshment
+27	Whip	Refreshment		Exploding	Shockwave		Sharpness	Unchanting		Swirling
+27	Twin Bow	Growing	Shock Web	Tempo Theft	Levitation Shot	Punch	Refreshment	Accelerate	Gravity	Infinity
+27	Cutlass	Piercing		Infinity	Refreshment		Smiting	Wild Rage		Overcharge
+27	Shulker Armor	Speed Synergy		Soul Focus	Beast Burst		Beast Boss	Gravity Pulse		Tumblebee
+28	Whispering Spear	Void Strike		Swirling	Gravity	Critical Hit	Guarding Strike	Shockwave	Refreshment	Radiance
+28	Hawkbrand	Shockwave		Void Strike	Refreshment	Swirling	Chains	Gravity	Radiance	Exploding
+28	Crossbow	Critical Hit		Void Strike	Gravity		Refreshment	Levitation Shot		Fire Aspect
+28	Tasty Bone									
+28	Flaming Quiver									
+29		
