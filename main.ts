@@ -200,7 +200,7 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
 
     for await (let fn of globSync('videos/*.png').sort()) {
         // SKIP
-        if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
+        //if (!['014902'].some(frame => fn.startsWith(`videos/out${frame}`))) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 11000) continue;
         //if (parseInt(fn.substring(fn.indexOf('0'))) < 4752) continue;
 
@@ -261,28 +261,17 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
             // Recognize text and get TSV data
             let result = await levelWorker.recognize(await imageGSJimp.getBuffer("image/png"), {
                 rectangle: { top: nextFloorY, left: nextFloorX, width: nextFloorWidth, height: nextFloorHeight},
-                rotateAuto: false
-            }, {
-                text: true,
-                blocks: true,
-                layoutBlocks: true,
-                hocr: true,
-                tsv: true,
-                box: true,
-                unlv: true,
-                osd: true,
-                debug: true
             });
-            let {data: {text: original, words: levelWords, hocr: levelHOCR, tsv: levelTSV, box: levelBOX}} = result;
+            let {data: {text: original}} = result;
 
             if (DEBUG) {
                 //console.log(JSON.stringify(result, null, 2));
-                console.log('tsv:');
-                console.log(levelTSV);
-                console.log('hocr:');
-                console.log(levelHOCR);
-                console.log('box:');
-                console.log(levelBOX);
+                //console.log('tsv:');
+                //console.log(levelTSV);
+                //console.log('hocr:');
+                //console.log(levelHOCR);
+                //console.log('box:');
+                //console.log(levelBOX);
             }
 
             original = original.trim().replace(/[\\n\\r]/, '');
@@ -383,45 +372,14 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             if ((item.enchantments[6] && !item.enchantments[8]) || (!item.enchantments[6] && item.enchantments[8])) console.log(`!!!! Missing 6/8`);
                         } else if (itemNum != undefined && itemNum < 5) {
                             if (!DEBUG) process.stdout.write(`${itemNum} `);
-                            let hsv = new cv.Mat();
 
-                            let itemNameOffsetX = 1200;
-                            let itemNameOffsetY = 180;
-                            let itemNameROI = image.roi(new cv.Rect(itemNameOffsetX, itemNameOffsetY, itemNameWidth, itemNameHeight));
-                            cv.cvtColor(itemNameROI, itemNameROI, cv.COLOR_BGR2HSV);
-                            cv.inRange(itemNameROI, itemNameLow, itemNameHigh, itemNameROI);
-                            cv.bitwise_not(itemNameROI, itemNameROI);
-                            // Convert single-channel contour image to RGBA for Jimp
-                            const imageRGBA = new Uint8Array(itemNameROI.rows * itemNameROI.cols * 4);
-
-                            for (let i = 0; i < itemNameROI.rows * itemNameROI.cols; i++) {
-                                const value = itemNameROI.data[i]; // Grayscale value from the contour image
-                                imageRGBA[i * 4] = value;    // Red channel
-                                imageRGBA[i * 4 + 1] = value; // Green channel
-                                imageRGBA[i * 4 + 2] = value; // Blue channel
-                                imageRGBA[i * 4 + 3] = 255;   // Alpha channel (fully opaque)
-                            }
-                            const itemNameJimp = new Jimp({width: itemNameROI.cols, height: itemNameROI.rows, data: Buffer.from(imageRGBA)});
-                            if (DEBUG) itemNameJimp.write(`${debugImageFN}_itemName.png`);
+                            let itemName1 = extractImageAsGrayscaleJimp(image, 1230, 210, itemNameWidth, 45);
+                            if (DEBUG) itemName1.write(`${debugImageFN}_itemName1.png`);
                             if (DEBUG) console.log(`TIMING: (${Math.round((Date.now()-now)/1000)}s) wrote itemName`); now = Date.now();
 
                             // find item name
-                            let result = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                rectangle: { top: 210-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45},
-                                rotateAuto: false
-                            }, {
-                                text: true,
-                                blocks: true,
-                                layoutBlocks: true,
-                                hocr: true,
-                                tsv: true,
-                                box: true,
-                                unlv: true,
-                                osd: true,
-                                debug: true
-                            });
-                            // console.log(JSON.stringify(result, null, 2));
-                            let {data: {text: tessName}} = result;
+                            let {data: {text: tessName}} = await nameWorker.recognize(await itemName1.getBuffer("image/png"));
+
                             if (DEBUG) cv.rectangle(imageOutput, new cv.Point(1230, 210), new cv.Point(1230+itemNameWidth, 210+45), colorRed, 2, cv.LINE_8, 0);
                             if (DEBUG) cv.putText(imageOutput, `[${tessName}]`, new cv.Point(30, 900), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                             // see if we need the second line
@@ -432,9 +390,8 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             }
                             if (countWhite) {
                                 cv.rectangle(imageOutput, new cv.Point(1280, 265), new cv.Point(1280+30,265), colorGreen, 3, cv.LINE_8, 0);
-                                let {data: {text: line2}} = await nameWorker.recognize(await itemNameJimp.getBuffer("image/png"), {
-                                    rectangle: { top: 260-itemNameOffsetY, left: 1230-itemNameOffsetX, width: itemNameWidth, height: 45}
-                                });
+                                itemName1 = extractImageAsGrayscaleJimp(image, 1230, 260, itemNameWidth, 45);
+                                let {data: {text: line2}} = await nameWorker.recognize(await itemName1.getBuffer("image/png"));
                                 cv.rectangle(imageOutput, new cv.Point(1230, 260), new cv.Point(1230+itemNameWidth, 260+45), colorRed, 2, cv.LINE_8, 0);
                                 cv.putText(imageOutput, `[${line2}]`, new cv.Point(30, 950), cv.FONT_HERSHEY_SIMPLEX, 1, colorRed, 2, cv.LINE_8, 0);
                                 tessName += line2;
@@ -549,10 +506,6 @@ function extractImageAsGrayscaleJimp(img, x, y, w, h) {
                             writeRGBAImage(imageOutput, `${debugFN}_${itemNum}.png`);
 
                             if (!DEBUG) console.log(`- ${enchantmentsFound.join('/')}${item.settled?' SETTLED!':''}`);
-
-                            // Clean up
-                            hsv.delete();
-                            itemNameROI.delete();
                         } else {
                             if (!DEBUG) console.log('No Item Selected');
                         }
