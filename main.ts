@@ -942,7 +942,7 @@ const enchantments: Enchantment[] = [
 {fn: 'Beast_Surge_(MCD_Enchantment).png', name: 'Beast Surge'},
 {fn: 'Bonus_Shot.png', name: 'Bonus Shot'},
 {fn: 'Burning.png', name: 'Burning'},
-{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring', offsetX: -1, offsetY: 0},
+{fn: 'Burst_Bowstring.png', name: 'Burst Bowstring', offsetX: -1, offsetY: 0, maxMSE: 4000},
 {fn: 'BusyBee.png', name: 'Busy Bee'},
 {fn: 'Chain_Reaction.png', name: 'Chain Reaction'},
 {fn: 'Chains.png', name: 'Chains'},
